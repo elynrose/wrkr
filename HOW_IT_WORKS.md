@@ -67,7 +67,7 @@ The site is similar in concept to Angi/HomeAdvisor: consumers submit a request; 
    - **Claim** — Deducts 1 credit, gives exclusive access to the lead; customer contact info is visible in the **Pro Dashboard**.
    - **Pass** — No charge; they decline the lead.
 5. **Pro Dashboard** — Shows only **their** matched leads (by status: notified, viewed, accepted, declined, expired). They can claim from the dashboard or from the SMS link. After claiming, they see customer details and can update lead status (contacted, quoted, hired, completed).
-6. **Profile** — Pros can update profile, change password, and manage **subscription** (upgrade, cancel, billing portal).
+6. **Profile** — Pros can update profile (including **Google Review URL**), change password, and manage **subscription** (upgrade, cancel, billing portal).
 
 ---
 
@@ -82,6 +82,23 @@ After a lead is **claimed**:
   - **NO** — Lead is **re-opened**: claim is cleared, lead goes back to “new” and **matching runs again** so other pros get a chance.
   - **STOP** — Customer opts out of SMS; `sms_opt_out` is set; no more messages.
 - Replies are logged in `sms_inbound`; follow-up state is stored on the lead (`follow_up_status`, `follow_up_count`, etc.).
+
+---
+
+### 4b. Rating & Review System
+
+When a lead is marked as **completed** (by the pro or admin), the system automatically:
+
+1. Generates a unique **review token** and stores it on the lead.
+2. Sends a **review request SMS** and **email** to the customer with a link to `/#review/TOKEN`.
+3. The customer opens the **Review Page** (no login required) where they can:
+   - Rate the provider (1–5 stars).
+   - Leave a written review (title + body).
+   - See a prominent link to leave a **Google Review** for the provider (if the pro has set their Google Review URL in their profile).
+4. After submitting, the review is saved as **verified** (linked to a real lead) and the pro's aggregate rating is recalculated.
+5. **Recent verified reviews** are displayed on the homepage in a "Customer Reviews" section.
+
+Providers can add their **Google Review URL** on their Profile page, so every review request also funnels customers to their Google listing.
 
 ---
 

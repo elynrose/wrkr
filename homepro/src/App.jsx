@@ -22,8 +22,10 @@ import AdminDashboard   from './pages/AdminDashboard';
 import LeadDetailsPage  from './pages/LeadDetailsPage';
 import ProfilePage      from './pages/ProfilePage';
 import ProHomePage      from './pages/ProHomePage';
+import RecentReviews   from './components/RecentReviews';
 import CmsPage          from './pages/CmsPage';
 import ClaimPage        from './pages/ClaimPage';
+import ReviewPage       from './pages/ReviewPage';
 import ErrorBoundary    from './components/ErrorBoundary';
 import GoogleAnalytics  from './components/GoogleAnalytics';
 
@@ -56,6 +58,7 @@ function AppInner() {
   const [selectedLeadId, setSelectedLeadId] = useState(null);
   const [cmsSlug, setCmsSlug]             = useState(null);
   const [claimToken, setClaimToken]       = useState(null);
+  const [reviewToken, setReviewToken]     = useState(null);
 
   // Parse hash routes on load and hash change (for SMS claim links)
   useEffect(() => {
@@ -65,6 +68,12 @@ function AppInner() {
       if (claimMatch) {
         setClaimToken(claimMatch[1]);
         setView('claim');
+        return;
+      }
+      const reviewMatch = hash.match(/^#review\/(.+)$/);
+      if (reviewMatch) {
+        setReviewToken(reviewMatch[1]);
+        setView('review');
         return;
       }
       const pageMatch = hash.match(/^#page\/(.+)$/);
@@ -154,6 +163,7 @@ function AppInner() {
 
   // Full-page views (no header/footer)
   if (view === 'claim' && claimToken) return <ClaimPage token={claimToken} onNavigate={navigate} />;
+  if (view === 'review' && reviewToken) return <ReviewPage token={reviewToken} onNavigate={navigate} />;
   if (view === 'login') return <LoginPage onNavigate={navigate} />;
   if (view === 'register') return <RegisterPage onNavigate={navigate} />;
 
@@ -171,6 +181,7 @@ function AppInner() {
           <Hero onConsumerSignup={openConsumer} services={services} />
           <ServiceCategories services={services} loading={servicesLoading} onConsumerSignup={openConsumer} />
           <HowItWorks onConsumerSignup={openConsumer} onNavigatePro={() => navigate('for-pros')} />
+          <RecentReviews />
         </>
       )}
 
@@ -217,7 +228,7 @@ function AppInner() {
         <LeadDetailsPage leadId={selectedLeadId} onBack={() => setSelectedLeadId(null)} />
       )}
 
-      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim'].includes(view) && (
+      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim','review'].includes(view) && (
         <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 40 }}>
           <h2 style={{ fontSize: 48, fontWeight: 800, color: 'var(--color-primary)' }}>404</h2>
           <p style={{ fontSize: 18, fontWeight: 600 }}>Page not found</p>

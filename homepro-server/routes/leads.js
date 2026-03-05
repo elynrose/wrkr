@@ -4,8 +4,11 @@ const db      = require('../db');
 const { authenticate, requireRole, optionalAuth } = require('../middleware/auth');
 const { matchAndNotify } = require('../services/matchEngine');
 const { deductCredits } = require('../services/credits');
-const { sendNewLeadEmail, sendLeadClaimedEmailToCustomer, sendLeadClaimedEmailToPro } = require('../services/email');
+const { sendNewLeadEmail, sendLeadClaimedEmailToCustomer, sendLeadClaimedEmailToPro, getSmsTemplate, renderTemplate, sendTemplatedEmail } = require('../services/email');
 const { spamProtect } = require('../middleware/spam');
+const { sendSMS } = require('../services/sms');
+const crypto = require('crypto');
+const { getPublicSettings } = require('../services/siteConfig');
 
 // POST /api/leads — consumer creates a lead
 router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimitSettingKey: 'spam_rate_limit_max_leads', minTimingMs: 3000, maxLinks: 3 }), optionalAuth, async (req, res) => {
@@ -311,6 +314,55 @@ router.patch('/:id/status', authenticate, async (req, res) => {
       [leadId, req.user.id, 'status_change', `Status changed from "${oldStatus}" to "${status}"`]);
     await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
       [leadId, req.user.id, 'status_changed', `${oldStatus} → ${status}`]);
+
+    // When job is marked completed, send review request to customer
+    if (status === 'completed' && oldStatus !== 'completed') {
+      setImmediate(async () => {
+        try {
+          const [leadRows] = await db.query(
+            `SELECT l.*, p.business_name, p.google_review_url
+             FROM leads l LEFT JOIN pros p ON l.claimed_by_pro_id = p.id WHERE l.id = ?`, [leadId]
+          );
+          const lead = leadRows[0];
+          if (!lead || lead.review_sent || lead.review_submitted) return;
+
+          const token = crypto.randomBytes(32).toString('hex');
+          await db.query('UPDATE leads SET review_token = ?, review_sent = TRUE WHERE id = ?', [token, leadId]);
+
+          const siteConfig = await getPublicSettings();
+          const siteName = siteConfig.site_name || 'HomePro';
+          const siteUrl = siteConfig.site_url || process.env.FRONTEND_URL || 'http://localhost:5173';
+          const reviewUrl = `${siteUrl}/#review/${token}`;
+
+          const vars = {
+            customer_name: lead.customer_name || 'there',
+            service_name: lead.service_name || 'your project',
+            business_name: lead.claimed_by_business || lead.business_name || 'your provider',
+            review_url: reviewUrl,
+            site_name: siteName,
+          };
+
+          // Send SMS
+          if (lead.phone && !lead.sms_opt_out) {
+            const smsTmpl = await getSmsTemplate('sms_review_request');
+            const smsBody = smsTmpl
+              ? renderTemplate(smsTmpl.body, vars)
+              : `Hi ${vars.customer_name}! Your ${vars.service_name} job is complete. Leave a review: ${reviewUrl}`;
+            sendSMS(lead.phone, smsBody).catch(err => console.error('[SMS] Review request failed:', err.message));
+          }
+
+          // Send email
+          if (lead.email) {
+            sendTemplatedEmail('email_review_request', lead.email, vars)
+              .catch(err => console.error('[EMAIL] Review request failed:', err.message));
+          }
+
+          console.log(`[REVIEW] Sent review request for lead #${leadId} — token: ${token.slice(0, 8)}…`);
+        } catch (err) {
+          console.error('[REVIEW] Failed to send review request:', err.message);
+        }
+      });
+    }
 
     res.json({ message: 'Status updated' });
   } catch (err) {

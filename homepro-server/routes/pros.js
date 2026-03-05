@@ -130,7 +130,7 @@ router.get('/:id', async (req, res) => {
 
 // PUT /api/pros/:id — update pro profile (owner only)
 router.put('/:id', authenticate, async (req, res) => {
-  const { businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo } = req.body;
+  const { businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, googleReviewUrl } = req.body;
   try {
     const [pros] = await db.query('SELECT id FROM pros WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
     if (!pros.length) return res.status(403).json({ error: 'Not authorized' });
@@ -138,8 +138,9 @@ router.put('/:id', authenticate, async (req, res) => {
     await db.query(
       `UPDATE pros SET business_name=COALESCE(?,business_name), description=COALESCE(?,description),
        phone=COALESCE(?,phone), website=COALESCE(?,website), years_in_business=COALESCE(?,years_in_business),
-       license_number=COALESCE(?,license_number), insurance_info=COALESCE(?,insurance_info) WHERE id=?`,
-      [businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, req.params.id]
+       license_number=COALESCE(?,license_number), insurance_info=COALESCE(?,insurance_info),
+       google_review_url=COALESCE(?,google_review_url) WHERE id=?`,
+      [businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, googleReviewUrl, req.params.id]
     );
     res.json({ message: 'Profile updated' });
   } catch (err) {

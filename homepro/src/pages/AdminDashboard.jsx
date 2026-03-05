@@ -157,6 +157,11 @@ export default function AdminDashboard({ onShowLead }) {
   const [pagesPage, setPagesPage] = useState(1);
   const pagesLimit = 10;
   const [pagesSubTab, setPagesSubTab] = useState('list');
+  const [reviews, setReviews] = useState([]);
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [reviewsTotal, setReviewsTotal] = useState(0);
+  const [reviewsLimit] = useState(25);
+  const [reviewFilter, setReviewFilter] = useState('');
   const [testSmsTo, setTestSmsTo] = useState('');
   const [testSmsSending, setTestSmsSending] = useState(false);
   const [testSmsResult, setTestSmsResult] = useState(null);
@@ -228,6 +233,18 @@ export default function AdminDashboard({ onShowLead }) {
       })
       .catch(() => {});
   }, [tab, leadsPage]);
+
+  // Load reviews when Reviews tab is open
+  useEffect(() => {
+    if (tab !== 'reviews') return;
+    const q = reviewFilter ? `&is_public=${reviewFilter}` : '';
+    api.get(`/reviews/admin?page=${reviewsPage}&limit=${reviewsLimit}${q}`)
+      .then(d => {
+        setReviews(d.reviews ?? []);
+        setReviewsTotal(d.total ?? 0);
+      })
+      .catch(() => {});
+  }, [tab, reviewsPage, reviewFilter]);
 
   // Load steps when Pages > Homepage Steps sub-tab is opened
   useEffect(() => {
@@ -401,6 +418,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'packages',   label: 'Packages',    icon: faCubes },
     { key: 'categories', label: 'Categories',  icon: faTag },
     { key: 'services',   label: 'Services',    icon: faLayerGroup },
+    { key: 'reviews',    label: 'Reviews',     icon: faStar },
     { key: 'pages',      label: 'Pages',       icon: faFileLines },
     { key: 'templates',  label: 'Templates',   icon: faBell },
     { key: 'settings',   label: 'Settings',    icon: faGear },
@@ -761,6 +779,66 @@ export default function AdminDashboard({ onShowLead }) {
               </tr>
             ))}
           </Table></Card>
+        </>}
+
+        {/* ══════════ REVIEWS ══════════ */}
+        {tab === 'reviews' && <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
+            <h3 style={{ margin: 0, color: tp, fontSize: 18 }}>
+              <FontAwesomeIcon icon={faStar} style={{ marginRight: 8, color: '#facc15' }} />
+              Reviews ({reviewsTotal})
+            </h3>
+            <select value={reviewFilter} onChange={e => { setReviewFilter(e.target.value); setReviewsPage(1); }}
+              style={{ padding: '6px 12px', fontSize: 12, borderRadius: 'var(--border-radius)', border: `1px solid ${border}`, background: dm ? '#1e293b' : '#fff', color: tp }}>
+              <option value="">All Reviews</option>
+              <option value="true">Public</option>
+              <option value="false">Hidden</option>
+            </select>
+          </div>
+          <Card dm={dm}><Table headers={['ID','Customer','Provider','Service','Rating','Title','Public','Verified','Date','Actions']} dm={dm}>
+            {reviews.map(r => (
+              <tr key={r.id}>
+                <Td dm={dm}>{r.id}</Td>
+                <Td dm={dm}>{r.customer_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.reviewer_email || '—'}</Td>
+                <Td dm={dm}>{r.business_name || '—'}</Td>
+                <Td dm={dm}>{r.service_name || '—'}</Td>
+                <Td dm={dm}>
+                  <span style={{ display: 'inline-flex', gap: 1 }}>
+                    {[1,2,3,4,5].map(n => <FontAwesomeIcon key={n} icon={faStar} style={{ fontSize: 10, color: n <= r.rating ? '#facc15' : (dm ? '#334155' : '#d1d5db') }} />)}
+                  </span>
+                </Td>
+                <Td dm={dm}>
+                  <div style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.body || ''}>
+                    {r.title || (r.body ? r.body.slice(0, 60) + (r.body.length > 60 ? '…' : '') : '—')}
+                  </div>
+                </Td>
+                <Td dm={dm}>
+                  <button onClick={async () => {
+                    await api.patch(`/reviews/${r.id}`, { is_public: !r.is_public });
+                    setReviews(prev => prev.map(rv => rv.id === r.id ? { ...rv, is_public: !rv.is_public } : rv));
+                    flash(r.is_public ? 'Review hidden' : 'Review published');
+                  }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.is_public ? '#22c55e' : '#ef4444', fontSize: 16 }} title={r.is_public ? 'Click to hide' : 'Click to publish'}>
+                    <FontAwesomeIcon icon={r.is_public ? faToggleOn : faToggleOff} />
+                  </button>
+                </Td>
+                <Td dm={dm}>
+                  {r.is_verified ? <FontAwesomeIcon icon={faCheckCircle} style={{ color: '#22c55e' }} /> : <FontAwesomeIcon icon={faXmarkCircle} style={{ color: ts }} />}
+                </Td>
+                <Td dm={dm}>{new Date(r.created_at).toLocaleDateString()}</Td>
+                <Td dm={dm}>
+                  <Btn small variant="danger" onClick={async () => {
+                    if (!confirm('Delete this review permanently?')) return;
+                    await api.del(`/reviews/${r.id}`);
+                    setReviews(prev => prev.filter(rv => rv.id !== r.id));
+                    setReviewsTotal(t => t - 1);
+                    flash('Review deleted');
+                  }}><FontAwesomeIcon icon={faTrash} /></Btn>
+                </Td>
+              </tr>
+            ))}
+          </Table>
+          <PaginationBar page={reviewsPage} total={reviewsTotal} limit={reviewsLimit} onPageChange={setReviewsPage} dm={dm} />
+          </Card>
         </>}
 
         {/* ══════════ PAGES (CMS + Homepage Steps) ══════════ */}

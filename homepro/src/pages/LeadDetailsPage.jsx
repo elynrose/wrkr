@@ -354,6 +354,20 @@ export default function LeadDetailsPage({ leadId, onBack }) {
                     </p>
                   </div>
                 )}
+                {lead.status === 'completed' && (
+                  <div style={{ marginTop: 10, padding: 14, borderRadius: 8, background: dm ? '#1e1b4b' : '#eef2ff', border: `1px solid ${dm ? '#312e81' : '#c7d2fe'}` }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: dm ? '#a5b4fc' : '#4338ca', display: 'block', marginBottom: 4 }}>
+                      <FontAwesomeIcon icon={faStar} style={{ marginRight: 4 }} />Customer Review
+                    </label>
+                    <p style={{ fontSize: 13, color: tp, margin: 0 }}>
+                      {lead.review_submitted
+                        ? <span style={{ color: '#22c55e', fontWeight: 700 }}>✓ Review submitted</span>
+                        : lead.review_sent
+                          ? <span style={{ color: dm ? '#fbbf24' : '#d97706' }}>Review request sent — awaiting feedback</span>
+                          : <span style={{ color: ts }}>Review request not yet sent</span>}
+                    </p>
+                  </div>
+                )}
                 {lead.description && (
                   <div style={{ marginTop: 14, padding: 14, borderRadius: 8, background: dm ? '#1e293b' : '#f8fafc', border: `1px solid ${border}` }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: ts, display: 'block', marginBottom: 4 }}>Description</label>

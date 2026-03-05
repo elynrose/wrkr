@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS pros (
   years_in_business VARCHAR(30),
   license_number    VARCHAR(80),
   insurance_info    VARCHAR(200),
+  google_review_url VARCHAR(500)  NULL,
   is_verified       BOOLEAN       DEFAULT FALSE,
   is_background_checked BOOLEAN   DEFAULT FALSE,
   avg_rating        DECIMAL(2,1)  DEFAULT 0,
@@ -193,6 +194,9 @@ CREATE TABLE IF NOT EXISTS leads (
   follow_up_last_sent_at TIMESTAMP NULL,
   follow_up_next_at TIMESTAMP NULL,
   sms_opt_out  BOOLEAN       DEFAULT FALSE,
+  review_token VARCHAR(64)   NULL,
+  review_sent  BOOLEAN       DEFAULT FALSE,
+  review_submitted BOOLEAN   DEFAULT FALSE,
   priority     ENUM('low','normal','high','urgent') DEFAULT 'normal',
   assigned_to  INT           NULL,
   follow_up_date DATE        NULL,
@@ -654,3 +658,17 @@ INSERT INTO leads (user_id, service_id, service_name, customer_name, email, phon
   (3, 9, 'Remodeling',   'Robert Taylor',  'robert@email.com', '555-0108','78707',6,'Round Rock','TX','Bathroom remodel — new vanity, shower, and tile work.',       'this_month','completed',40.00, NOW() - INTERVAL 5 DAY),
   (3,10, 'Pest Control', 'Jennifer Lee',   'jen@email.com',    '555-0109','78708',7,'Pflugerville','TX','Seeing ants and roaches in kitchen, need full treatment.',   'this_week', 'new',      20.00, NOW() - INTERVAL 4 HOUR),
   (3, 7, 'Painting',     'Chris Martinez', 'chris@email.com',  '555-0110','78709',1,'Austin','TX','Interior painting — living room, dining room, and hallway.',      'this_month','quoted',   25.00, NOW() - INTERVAL 3 DAY);
+
+-- Review request notification templates
+INSERT IGNORE INTO notification_templates (slug, name, channel, subject, body, description, variables, is_active) VALUES
+  ('sms_review_request', 'Review Request SMS', 'sms', NULL,
+   'Hi {{customer_name}}! Your {{service_name}} job with {{business_name}} is complete. We''d love your feedback! Leave a review: {{review_url}}',
+   'Sent to customer when a lead is marked as completed, asking for a review.',
+   'customer_name, service_name, business_name, review_url, site_name',
+   TRUE),
+  ('email_review_request', 'Review Request Email', 'email',
+   'How was your {{service_name}} experience?',
+   '<h2>How was your experience?</h2><p>Hi {{customer_name}},</p><p>Your <strong>{{service_name}}</strong> job with <strong>{{business_name}}</strong> has been completed. We''d love to hear how it went!</p><p><a href="{{review_url}}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Leave a Review</a></p><p>Your feedback helps other homeowners find great service professionals.</p><p>Thank you,<br>{{site_name}}</p>',
+   'Sent to customer when a lead is marked as completed, asking for a review.',
+   'customer_name, service_name, business_name, review_url, site_name',
+   TRUE);

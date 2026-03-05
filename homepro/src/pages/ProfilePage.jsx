@@ -4,8 +4,9 @@ import {
   faUser, faEnvelope, faPhone, faSave, faSpinner, faCheckCircle, faKey,
   faBuilding, faGlobe, faIdCard, faBriefcase, faClock, faListCheck,
   faCreditCard, faArrowUpRightFromSquare, faCoins, faBan, faRotateRight,
-  faChevronLeft, faChevronRight,
+  faChevronLeft, faChevronRight, faStar,
 } from '@fortawesome/free-solid-svg-icons';
+import { faGoogle } from '@fortawesome/free-brands-svg-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -51,6 +52,7 @@ export default function ProfilePage() {
     yearsInBusiness: '',
     licenseNumber: '',
     insuranceInfo: '',
+    googleReviewUrl: '',
   });
 
   useEffect(() => {
@@ -70,6 +72,7 @@ export default function ProfilePage() {
         yearsInBusiness: user.pro.years_in_business || '',
         licenseNumber: user.pro.license_number || '',
         insuranceInfo: user.pro.insurance_info || '',
+        googleReviewUrl: user.pro.google_review_url || '',
       });
     }
   }, [user]);
@@ -293,6 +296,14 @@ export default function ProfilePage() {
                 onChange={(v) => setProForm(s => ({ ...s, licenseNumber: v }))} />
               <Field label="Insurance Info" icon={faBriefcase} style={labelStyle} input={inputStyle} value={proForm.insuranceInfo}
                 onChange={(v) => setProForm(s => ({ ...s, insuranceInfo: v }))} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16 }}>
+              <Field label="Google Review URL" icon={faGoogle} style={labelStyle} input={inputStyle} value={proForm.googleReviewUrl}
+                onChange={(v) => setProForm(s => ({ ...s, googleReviewUrl: v }))} type="text" />
+              <p style={{ fontSize: 12, color: darkMode ? '#9ca3af' : '#6b7280', marginTop: -12 }}>
+                <FontAwesomeIcon icon={faStar} style={{ marginRight: 4, color: '#f59e0b', fontSize: 10 }} />
+                Paste your Google Maps review link here. Customers who leave a review on the site will also be prompted to leave one on Google.
+              </p>
             </div>
             <label style={{ ...labelStyle, marginTop: 4 }}>Description</label>
             <textarea value={proForm.description} onChange={(e) => setProForm(s => ({ ...s, description: e.target.value }))}
