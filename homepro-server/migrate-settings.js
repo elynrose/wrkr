@@ -19,7 +19,7 @@ async function main() {
       setting_key   VARCHAR(120) UNIQUE NOT NULL,
       setting_value TEXT,
       setting_type  ENUM('string','number','boolean','json','secret') DEFAULT 'string',
-      setting_group ENUM('general','stripe','twilio','homepage','seo','email','appearance','advanced') DEFAULT 'general',
+      setting_group ENUM('general','stripe','twilio','homepage','seo','email','appearance','advanced','analytics') DEFAULT 'general',
       label         VARCHAR(200),
       description   TEXT,
       is_public     BOOLEAN DEFAULT TRUE,
@@ -79,6 +79,7 @@ async function main() {
       ('default_theme',       'blue',                                 'string',  'appearance', 'Default Theme',          'Default color theme: blue, green, purple, red, teal', TRUE, 1),
       ('default_dark_mode',   'false',                                'boolean', 'appearance', 'Default Dark Mode',      'Enable dark mode by default',                       TRUE,  2),
       ('default_font',        'inter',                                'string',  'appearance', 'Default Font',           'Default font family: inter, poppins, roboto',        TRUE,  3),
+      ('default_border_radius', 'md',                                 'string',  'appearance', 'Border Radius',           'Button/card radius: sm, md, lg, full',               TRUE,  4),
 
       -- Spam / Security
       ('spam_rate_limit_window',     '15',    'number',  'advanced', 'Rate Limit Window (min)',   'Time window for rate limiting in minutes',                         TRUE, 1),
@@ -88,7 +89,11 @@ async function main() {
       ('spam_min_submit_time',       '3',     'number',  'advanced', 'Min Submit Time (sec)',      'Minimum seconds before a form can be submitted (bot detection)',   TRUE, 5),
       ('spam_honeypot_enabled',      'true',  'boolean', 'advanced', 'Honeypot Enabled',          'Enable honeypot field validation on forms',                        TRUE, 6),
       ('spam_link_check_enabled',    'true',  'boolean', 'advanced', 'Link Spam Check',           'Block submissions with excessive URLs',                            TRUE, 7),
-      ('spam_max_links',             '5',     'number',  'advanced', 'Max Links Per Form',        'Maximum number of URLs allowed in a single form submission',       TRUE, 8);
+      ('spam_max_links',             '5',     'number',  'advanced', 'Max Links Per Form',        'Maximum number of URLs allowed in a single form submission',       TRUE, 8),
+
+      -- Google Analytics
+      ('google_analytics_enabled',   'false', 'boolean', 'analytics', 'Enable Google Analytics', 'Track page views and events with Google Analytics 4 (GA4)', TRUE, 1),
+      ('google_analytics_measurement_id', '', 'string',  'analytics', 'Measurement ID',           'Your GA4 Measurement ID (e.g. G-XXXXXXXXXX)',                    TRUE, 2);
   `;
 
   try {

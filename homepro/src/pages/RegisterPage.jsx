@@ -6,11 +6,13 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import useSpamProtect from '../hooks/useSpamProtect';
 
 export default function RegisterPage({ onNavigate }) {
   const { darkMode } = useTheme();
   const { register } = useAuth();
+  const { siteName } = useSettings();
   const { spamFields, SpamHoneypot } = useSpamProtect();
 
   const [form, setForm] = useState({
@@ -71,9 +73,9 @@ export default function RegisterPage({ onNavigate }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               backgroundColor: 'var(--color-primary)', color: '#fff',
               fontWeight: 800, fontSize: 22, boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-            }}>H</div>
+            }}>{(siteName || 'H')[0]}</div>
             <span style={{ fontSize: 24, fontWeight: 800, color: textPrimary }}>
-              Home<span style={{ color: 'var(--color-primary)' }}>Pro</span>
+              {siteName === 'HomePro' ? <>Home<span style={{ color: 'var(--color-primary)' }}>Pro</span></> : siteName}
             </span>
           </button>
           <p style={{ color: textSecondary, fontSize: 14, marginTop: 8 }}>
@@ -220,7 +222,7 @@ export default function RegisterPage({ onNavigate }) {
           <button onClick={() => onNavigate('home')} style={{
             background: 'none', border: 'none', color: textSecondary,
             cursor: 'pointer', textDecoration: 'underline',
-          }}>← Back to HomePro</button>
+          }}>← Back to {siteName}</button>
         </p>
       </div>
     </div>

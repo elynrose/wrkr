@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const db = require('../db');
+const { getSiteConfig } = require('./siteConfig');
 
 let transporter = null;
 let cachedConfig = null;
@@ -116,34 +117,35 @@ async function getTemplate(slug) {
   return null;
 }
 
-function wrap(title, body) {
+function wrap(title, body, siteName = 'HomePro') {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f6f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
   <div style="background:#2563eb;padding:24px 32px;">
-    <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">HomePro</h1>
+    <h1 style="margin:0;color:#fff;font-size:20px;font-weight:700;">${siteName}</h1>
   </div>
   <div style="padding:32px;">
     <h2 style="margin:0 0 16px;font-size:18px;color:#1e293b;">${title}</h2>
     ${body}
   </div>
   <div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;">
-    <p style="margin:0;font-size:12px;color:#94a3b8;">&copy; ${new Date().getFullYear()} HomePro. All rights reserved.</p>
+    <p style="margin:0;font-size:12px;color:#94a3b8;">&copy; ${new Date().getFullYear()} ${siteName}. All rights reserved.</p>
   </div>
 </div>
 </body></html>`;
 }
 
 async function sendTemplatedEmail(slug, to, vars) {
-  const tmpl = await getTemplate(slug);
+  const [tmpl, site] = await Promise.all([getTemplate(slug), getSiteConfig()]);
   if (!tmpl) {
     console.log(`[EMAIL] Template "${slug}" not found or inactive — skipping`);
     return null;
   }
-  const renderedBody = renderTemplate(tmpl.body, vars);
-  const renderedSubject = renderTemplate(tmpl.subject || '', vars);
-  const html = wrap(renderedSubject, renderedBody);
+  const allVars = { ...vars, siteName: site.site_name, supportEmail: site.support_email, supportPhone: site.support_phone };
+  const renderedBody = renderTemplate(tmpl.body, allVars);
+  const renderedSubject = renderTemplate(tmpl.subject || '', allVars);
+  const html = wrap(renderedSubject, renderedBody, site.site_name);
   return sendEmail({ to, subject: renderedSubject, html });
 }
 
@@ -174,6 +176,7 @@ async function sendProWelcomeEmail(user, proData) {
 async function sendPasswordChangedEmail(user) {
   return sendTemplatedEmail('password_changed', user.email, {
     firstName: user.firstName || 'there',
+    supportEmail: (await getSiteConfig()).support_email,
   });
 }
 

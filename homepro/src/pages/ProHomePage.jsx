@@ -7,6 +7,7 @@ import {
   faUsers, faAward, faHandshake, faQuoteLeft,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 import { getHowItWorks, getPlans } from '../services/api';
 
 const PRO_STEPS_FALLBACK = [
@@ -35,14 +36,15 @@ const BENEFITS = [
   { icon: faHandshake,   title: 'Fair Competition',    desc: 'Each lead is shared with a maximum of 4 pros — giving you real odds of winning the job.' },
 ];
 
-const TESTIMONIALS = [
-  { name: 'Mike R.', biz: 'MR Plumbing Co.', text: 'HomePro has been a game-changer. I get 15-20 qualified leads a month and my close rate is over 40%.', stars: 5 },
+const TESTIMONIALS_BASE = [
+  { name: 'Mike R.', biz: 'MR Plumbing Co.', textKey: 'gameChanger', stars: 5 },
   { name: 'Sarah T.', biz: 'Bright Spark Electric', text: 'The targeted ZIP code system means I only see leads in my area. No more driving an hour for a $50 job.', stars: 5 },
   { name: 'James L.', biz: 'LandscapePro LLC', text: 'Signed up as a free user, got my first lead in 2 hours, and closed a $3,200 job that same week.', stars: 5 },
 ];
 
 export default function ProHomePage({ onProSignup, onNavigate }) {
   const { darkMode: dm } = useTheme();
+  const { siteName } = useSettings();
   const [steps, setSteps] = useState(PRO_STEPS_FALLBACK);
   const [plans, setPlans] = useState([]);
 
@@ -57,6 +59,12 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
   const cardBg = dm ? '#111827' : '#fff';
   const surfaceBg = dm ? '#0b1220' : '#f3f6fb';
   const accent = 'var(--color-accent)';
+
+  const testimonials = TESTIMONIALS_BASE.map((t) =>
+    t.textKey === 'gameChanger'
+      ? { ...t, text: `${siteName} has been a game-changer. I get 15-20 qualified leads a month and my close rate is over 40%.` }
+      : t
+  );
 
   return (
     <div style={{ fontFamily: 'var(--font-family)', color: tp }}>
@@ -170,7 +178,7 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
       <section style={{ background: dm ? '#111827' : '#fff', padding: '80px 16px' }}>
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
-            <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Why pros choose HomePro</h2>
+            <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Why pros choose {siteName}</h2>
             <p style={{ color: ts, maxWidth: 480, margin: '0 auto' }}>Everything you need to grow your business, all in one platform.</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
@@ -261,7 +269,7 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
             <p style={{ color: ts }}>Real results from real service professionals.</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 20 }}>
-            {TESTIMONIALS.map((t, i) => (
+            {testimonials.map((t, i) => (
               <div key={i} style={{
                 background: dm ? '#1e293b' : '#f9fafb', border: `1px solid ${border}`,
                 borderRadius: 'var(--border-radius)', padding: 24, position: 'relative',
@@ -293,7 +301,7 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
             Ready to grow your business?
           </h2>
           <p style={{ fontSize: 16, color: ts, marginBottom: 28 }}>
-            Join over 50,000 service professionals who trust HomePro for qualified leads in their area.
+            Join over 50,000 service professionals who trust {siteName} for qualified leads in their area.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={onProSignup} style={{

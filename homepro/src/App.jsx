@@ -4,6 +4,7 @@ import { faCheckCircle, faXmark, faSpinner } from '@fortawesome/free-solid-svg-i
 
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { getServices } from './services/api';
 
 import Header             from './components/Header';
@@ -13,7 +14,6 @@ import HowItWorks         from './components/HowItWorks';
 import ProDashboard       from './components/ProDashboard';
 import ConsumerSignupModal from './components/ConsumerSignupModal';
 import ProSignupModal     from './components/ProSignupModal';
-import ThemeCustomizer    from './components/ThemeCustomizer';
 import Footer             from './components/Footer';
 
 import LoginPage        from './pages/LoginPage';
@@ -24,6 +24,8 @@ import ProfilePage      from './pages/ProfilePage';
 import ProHomePage      from './pages/ProHomePage';
 import CmsPage          from './pages/CmsPage';
 import ClaimPage        from './pages/ClaimPage';
+import ErrorBoundary    from './components/ErrorBoundary';
+import GoogleAnalytics  from './components/GoogleAnalytics';
 
 function Toast({ message, onClose }) {
   useEffect(() => {
@@ -44,6 +46,7 @@ function Toast({ message, onClose }) {
 
 function AppInner() {
   const { user, loading: authLoading } = useAuth();
+  const { siteName } = useSettings();
   const [view, setView]                   = useState('home');
   const [services, setServices]           = useState([]);
   const [servicesLoading, setServicesLoading] = useState(true);
@@ -243,22 +246,26 @@ function AppInner() {
         <ProSignupModal
           services={services}
           onClose={() => setProModal(false)}
-          onSuccess={() => showToast('Account created! Welcome to HomePro. Check your email for next steps.')}
+          onSuccess={() => showToast(`Account created! Welcome to ${siteName}. Check your email for next steps.`)}
         />
       )}
 
       {toast && <Toast message={toast} onClose={() => setToast('')} />}
-      <ThemeCustomizer />
     </div>
   );
 }
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <AppInner />
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <GoogleAnalytics />
+            <AppInner />
+          </SettingsProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

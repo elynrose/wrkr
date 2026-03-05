@@ -40,12 +40,12 @@ router.get('/:slug', async (req, res) => {
 
 // POST /api/categories — admin
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, slug, parentId, iconClass, description, sortOrder } = req.body;
+  const { name, slug, parentId, iconClass, description, tags, sortOrder } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
   try {
     const [result] = await db.query(
-      'INSERT INTO categories (name, slug, parent_id, icon_class, description, sort_order) VALUES (?,?,?,?,?,?)',
-      [name, slug, parentId || null, iconClass, description, sortOrder || 0]
+      'INSERT INTO categories (name, slug, parent_id, icon_class, description, tags, sort_order) VALUES (?,?,?,?,?,?,?)',
+      [name, slug, parentId || null, iconClass || null, description || null, tags ? String(tags).trim() : null, sortOrder || 0]
     );
     res.status(201).json({ id: result.insertId, message: 'Category created' });
   } catch (err) {
@@ -56,13 +56,16 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // PUT /api/categories/:id — admin
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
-  const { name, slug, parentId, iconClass, description, sortOrder, isActive } = req.body;
+  const { name, slug, parentId, iconClass, description, tags, sortOrder, isActive } = req.body;
   try {
+    const setTags = tags !== undefined ? ', tags=?' : '';
+    const params = [name, slug, parentId ?? null, iconClass, description, sortOrder, isActive, req.params.id];
+    if (tags !== undefined) params.splice(5, 0, tags ? String(tags).trim() : null);
     await db.query(
       `UPDATE categories SET name=COALESCE(?,name), slug=COALESCE(?,slug), parent_id=?,
-       icon_class=COALESCE(?,icon_class), description=COALESCE(?,description),
+       icon_class=COALESCE(?,icon_class), description=COALESCE(?,description)${setTags},
        sort_order=COALESCE(?,sort_order), is_active=COALESCE(?,is_active) WHERE id=?`,
-      [name, slug, parentId ?? null, iconClass, description, sortOrder, isActive, req.params.id]
+      params
     );
     res.json({ message: 'Category updated' });
   } catch (err) {

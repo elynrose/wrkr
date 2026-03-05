@@ -7,10 +7,12 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Header({ onConsumerSignup, onProSignup, onShowView, currentView }) {
   const { darkMode } = useTheme();
   const { user, logout } = useAuth();
+  const { siteName } = useSettings();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dropOpen, setDropOpen] = useState(false);
   const dropRef = useRef(null);
@@ -56,9 +58,9 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               backgroundColor: 'var(--color-primary)', color: '#fff',
               fontWeight: 800, fontSize: 18, boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
-            }}>H</div>
+            }}>{(siteName || 'H')[0]}</div>
             <span style={{ fontSize: 20, fontWeight: 800, color: darkMode ? '#f3f4f6' : '#1f2937' }}>
-              Home<span style={{ color: 'var(--color-primary)' }}>Pro</span>
+              {siteName === 'HomePro' ? <>Home<span style={{ color: 'var(--color-primary)' }}>Pro</span></> : siteName}
             </span>
           </button>
 

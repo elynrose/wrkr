@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faSpinner, faExclamationTriangle } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function CmsPage({ slug }) {
   const { darkMode } = useTheme();
+  const { metaTitle } = useSettings();
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -23,8 +25,8 @@ export default function CmsPage({ slug }) {
 
   useEffect(() => {
     if (page?.meta_title) document.title = page.meta_title;
-    return () => { document.title = 'HomePro — Find Trusted Local Service Professionals'; };
-  }, [page]);
+    return () => { document.title = metaTitle; };
+  }, [page, metaTitle]);
 
   const tp = darkMode ? '#f1f5f9' : '#1e293b';
   const ts = darkMode ? '#94a3b8' : '#64748b';

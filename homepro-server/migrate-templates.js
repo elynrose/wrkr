@@ -80,7 +80,7 @@ async function main() {
       variables: 'firstName',
       body: `<p>Hi {{firstName}},</p>
 <p>Your HomePro password was just changed. If you made this change, no action is needed.</p>
-<p style="color:#dc2626;font-weight:600;">If you did not change your password, please contact our support team immediately at support@homepro.com.</p>`,
+<p style="color:#dc2626;font-weight:600;">If you did not change your password, please contact our support team immediately at {{supportEmail}}.</p>`,
     },
     {
       slug: 'new_lead_submitted',

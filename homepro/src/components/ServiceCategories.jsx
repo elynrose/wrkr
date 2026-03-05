@@ -4,6 +4,30 @@ import { faStar, faChevronLeft, faChevronRight } from '@fortawesome/free-solid-s
 import { useTheme } from '../context/ThemeContext';
 import { getIcon } from '../lib/icons';
 
+function ServiceCardIcon({ iconClass, cardImageUrl }) {
+  const [imgError, setImgError] = useState(false);
+  const useImage = cardImageUrl && !imgError;
+  return (
+    <div style={{
+      width: 48, height: 48, borderRadius: 'var(--border-radius)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      backgroundColor: 'var(--color-primary)', color: '#fff',
+      overflow: 'hidden', flexShrink: 0,
+    }}>
+      {useImage ? (
+        <img
+          src={cardImageUrl}
+          alt=""
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <FontAwesomeIcon icon={getIcon(iconClass)} style={{ width: 20, height: 20 }} />
+      )}
+    </div>
+  );
+}
+
 export default function ServiceCategories({ services = [], onConsumerSignup, loading }) {
   const { darkMode } = useTheme();
   const scrollRef = useRef(null);
@@ -116,13 +140,7 @@ export default function ServiceCategories({ services = [], onConsumerSignup, loa
                     e.currentTarget.style.transform = 'translateY(0)';
                   }}
                 >
-                  <div style={{
-                    width: 48, height: 48, borderRadius: 'var(--border-radius)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    backgroundColor: 'var(--color-primary)', color: '#fff',
-                  }}>
-                    <FontAwesomeIcon icon={getIcon(cat.icon_class)} style={{ width: 20, height: 20 }} />
-                  </div>
+                  <ServiceCardIcon iconClass={cat.icon_class} cardImageUrl={cat.card_image_url} />
                   <span style={{ fontSize: 14, fontWeight: 600, color: darkMode ? '#f3f4f6' : '#1f2937', whiteSpace: 'nowrap' }}>
                     {cat.name}
                   </span>

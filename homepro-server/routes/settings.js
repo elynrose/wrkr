@@ -6,6 +6,31 @@ const { clearCache: clearSmsCache } = require('../services/sms');
 const { clearCache: clearEmailCache } = require('../services/email');
 const { clearCache: clearStripeCache } = require('../services/stripe');
 const { clearSpamCache } = require('../middleware/spam');
+const { clearSiteConfigCache, getSiteConfig } = require('../services/siteConfig');
+const { sendSMS, isConfigured } = require('../services/sms');
+
+// POST /api/settings/test-sms — admin: send test SMS (must be before /:key)
+router.post('/test-sms', authenticate, requireRole('admin'), async (req, res) => {
+  const { to } = req.body;
+  if (!to || typeof to !== 'string') {
+    return res.status(400).json({ error: 'Phone number required (e.g. +15551234567)' });
+  }
+  const trimmed = to.trim();
+  if (!trimmed) return res.status(400).json({ error: 'Phone number required' });
+  try {
+    const configured = await isConfigured();
+    if (!configured) {
+      return res.status(400).json({ error: 'Twilio is not configured. Set Account SID, Auth Token, and Phone Number in Twilio settings.' });
+    }
+    const site = await getSiteConfig();
+    const body = `Test SMS from ${site.site_name}. Twilio is connected and working.`;
+    const result = await sendSMS(trimmed, body);
+    res.json({ success: true, message: 'Test SMS sent', sid: result.sid, mock: result.mock });
+  } catch (err) {
+    console.error('Test SMS error:', err);
+    res.status(500).json({ error: err.message || 'Failed to send test SMS' });
+  }
+});
 
 // GET /api/settings — public settings (no secrets)
 router.get('/', async (req, res) => {
@@ -82,6 +107,12 @@ router.put('/', authenticate, requireRole('admin'), async (req, res) => {
     const hasSpamChange = settings.some(s => s.key?.startsWith('spam_'));
     if (hasSpamChange) {
       clearSpamCache();
+    }
+
+    // If site/general settings changed, clear the site config cache
+    const hasGeneralChange = settings.some(s => ['site_name', 'support_email', 'support_phone', 'site_tagline'].includes(s.key));
+    if (hasGeneralChange) {
+      clearSiteConfigCache();
     }
 
     res.json({ message: `${settings.length} settings updated` });

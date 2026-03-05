@@ -23,12 +23,37 @@ router.get('/', async (req, res) => {
   }
 });
 
-// how-it-works must be before /:slug
+// GET /api/services/how-it-works — admin: list all steps (both audiences)
+router.get('/how-it-works', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT * FROM how_it_works ORDER BY audience ASC, step_number ASC');
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// GET /api/services/how-it-works/:audience — public: steps for consumer or pro
 router.get('/how-it-works/:audience', async (req, res) => {
   try {
     const audience = req.params.audience === 'pro' ? 'pro' : 'consumer';
     const [rows] = await db.query('SELECT * FROM how_it_works WHERE audience = ? ORDER BY step_number ASC', [audience]);
     res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// PUT /api/services/how-it-works/:id — admin: update one step
+router.put('/how-it-works/:id', authenticate, requireRole('admin'), async (req, res) => {
+  const { step_number, icon_class, title, description } = req.body;
+  const id = req.params.id;
+  try {
+    await db.query(
+      `UPDATE how_it_works SET step_number=COALESCE(?,step_number), icon_class=COALESCE(?,icon_class), title=COALESCE(?,title), description=COALESCE(?,description) WHERE id=?`,
+      [step_number, icon_class, title, description, id]
+    );
+    res.json({ message: 'Step updated' });
   } catch (err) {
     res.status(500).json({ error: 'Database error' });
   }
@@ -50,13 +75,14 @@ router.get('/:slug', async (req, res) => {
 
 // POST /api/services — admin: create service
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
-  const { categoryId, name, slug, iconClass, avgRating, reviewCount, reviewLabel, minPrice, priceUnit } = req.body;
-  if (!name || !slug || !iconClass) return res.status(400).json({ error: 'Name, slug, and icon are required' });
+  const { categoryId, name, slug, iconClass, cardImageUrl, avgRating, reviewCount, reviewLabel, minPrice, priceUnit } = req.body;
+  if (!name || !slug) return res.status(400).json({ error: 'Name and slug are required' });
+  const icon = iconClass || 'faWrench';
   try {
     const [result] = await db.query(
-      `INSERT INTO services (category_id, name, slug, icon_class, avg_rating, review_count, review_label, min_price, price_unit)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [categoryId || null, name, slug, iconClass, avgRating || 4.5, reviewCount || 0, reviewLabel || '0', minPrice || '', priceUnit || 'per job']
+      `INSERT INTO services (category_id, name, slug, icon_class, card_image_url, avg_rating, review_count, review_label, min_price, price_unit)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      [categoryId || null, name, slug, icon, cardImageUrl || null, avgRating || 4.5, reviewCount || 0, reviewLabel || '0', minPrice || '', priceUnit || 'per job']
     );
     res.status(201).json({ id: result.insertId, message: 'Service created' });
   } catch (err) {
@@ -68,16 +94,17 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // PUT /api/services/:id — admin: update service
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
-  const { categoryId, name, slug, iconClass, avgRating, reviewCount, reviewLabel, minPrice, priceUnit, isActive } = req.body;
+  const { categoryId, name, slug, iconClass, cardImageUrl, card_image_url, avgRating, reviewCount, reviewLabel, minPrice, priceUnit, isActive } = req.body;
+  const cardImg = cardImageUrl ?? card_image_url;
   try {
     await db.query(
       `UPDATE services SET
         category_id=COALESCE(?,category_id), name=COALESCE(?,name), slug=COALESCE(?,slug),
-        icon_class=COALESCE(?,icon_class), avg_rating=COALESCE(?,avg_rating),
-        review_count=COALESCE(?,review_count), review_label=COALESCE(?,review_label),
+        icon_class=COALESCE(?,icon_class), card_image_url=?,
+        avg_rating=COALESCE(?,avg_rating), review_count=COALESCE(?,review_count), review_label=COALESCE(?,review_label),
         min_price=COALESCE(?,min_price), price_unit=COALESCE(?,price_unit), is_active=COALESCE(?,is_active)
        WHERE id=?`,
-      [categoryId, name, slug, iconClass, avgRating, reviewCount, reviewLabel, minPrice, priceUnit, isActive, req.params.id]
+      [categoryId, name, slug, iconClass, cardImg === '' ? null : (cardImg || null), avgRating, reviewCount, reviewLabel, minPrice, priceUnit, isActive, req.params.id]
     );
     res.json({ message: 'Service updated' });
   } catch (err) {

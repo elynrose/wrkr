@@ -1,5 +1,13 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+// Public fetch for settings (no auth required)
+async function requestPublic(path) {
+  const res = await fetch(`${BASE}${path}`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'API error');
+  return data;
+}
+
 async function request(path, options = {}) {
   const token = localStorage.getItem('hp_token');
   const res = await fetch(`${BASE}${path}`, {
@@ -15,12 +23,19 @@ async function request(path, options = {}) {
   return data;
 }
 
+// ── Public settings (no auth) ───────────────
+export const getSettings = () => requestPublic('/settings');
+
 // ── Services ────────────────────────────────
 export const getServices = () => request('/services');
 
 // ── How It Works ────────────────────────────
 export const getHowItWorks = (audience) =>
   request(`/services/how-it-works/${audience}`);
+
+export const getHowItWorksAll = () => request('/services/how-it-works');
+export const updateHowItWorksStep = (id, data) =>
+  request(`/services/how-it-works/${id}`, { method: 'PUT', body: JSON.stringify(data) });
 
 // ── Leads ───────────────────────────────────
 export const submitLead = (data) =>

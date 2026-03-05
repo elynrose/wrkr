@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faEnvelope, faPhone, faLocationDot, faShieldHalved } from '@fortawesome/free-solid-svg-icons';
+import { useSettings } from '../context/SettingsContext';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -12,6 +13,7 @@ const linkStyle = {
 };
 
 export default function Footer({ onNavigate }) {
+  const { siteName, supportEmail, supportPhone } = useSettings();
   const [navPages, setNavPages] = useState([]);
 
   useEffect(() => {
@@ -44,17 +46,17 @@ export default function Footer({ onNavigate }) {
                 width: 36, height: 36, borderRadius: 'var(--border-radius)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 backgroundColor: 'var(--color-primary)', color: '#fff', fontWeight: 800, fontSize: 18,
-              }}>H</div>
+              }}>{(siteName || 'H')[0]}</div>
               <span style={{ fontSize: 20, fontWeight: 800 }}>
-                Home<span style={{ color: 'var(--color-primary)' }}>Pro</span>
+                {siteName === 'HomePro' ? <>Home<span style={{ color: 'var(--color-primary)' }}>Pro</span></> : siteName}
               </span>
             </div>
             <p style={{ fontSize: 14, color: '#9ca3af', lineHeight: 1.6, maxWidth: 280, marginBottom: 20 }}>
               The easiest way to connect homeowners with trusted local service professionals. Free for homeowners, qualified leads for pros.
             </p>
             {[
-              { icon: faPhone, text: '1-800-HOMEPRO' },
-              { icon: faEnvelope, text: 'support@homepro.com' },
+              { icon: faPhone, text: supportPhone },
+              { icon: faEnvelope, text: supportEmail },
               { icon: faLocationDot, text: 'Austin, TX · Nationwide' },
             ].map(c => (
               <div key={c.text} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 14, color: '#9ca3af', marginBottom: 8 }}>
@@ -129,7 +131,7 @@ export default function Footer({ onNavigate }) {
           display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between',
           alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280',
         }}>
-          <p>© {new Date().getFullYear()} HomePro, Inc. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {siteName}, Inc. All rights reserved.</p>
           <p>Made with ❤️ for homeowners and the pros who serve them.</p>
         </div>
       </div>

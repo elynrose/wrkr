@@ -6,9 +6,9 @@ import {
   faSearch, faStar, faLocationDot, faClock, faShieldHalved, faEnvelope,
   faGear, faCubes, faTag, faPlus, faPen, faTrash, faXmark, faPhone,
   faFloppyDisk, faHome, faMagnifyingGlass, faPalette, faFileLines, faEye,
-  faBell, faEnvelopeOpenText, faCommentSms, faToggleOn as faToggleOnSolid,
+  faBell, faEnvelopeOpenText, faCommentSms, faChartLine, faToggleOn as faToggleOnSolid, faListOl,
 } from '@fortawesome/free-solid-svg-icons';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme, themes as themeMap, fontOptions as fontOptionsMap, borderRadiusOptions as borderRadiusOpts } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import RichTextEditor from '../components/RichTextEditor';
 
@@ -43,8 +43,8 @@ function Badge({ children, color = '#3b82f6', bg = '#dbeafe' }) {
 }
 
 function Btn({ children, onClick, variant = 'primary', small, disabled, style: extra }) {
-  const base = { border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: 600, borderRadius: 'var(--border-radius)', display: 'inline-flex', alignItems: 'center', gap: 6, transition: 'opacity 0.15s', opacity: disabled ? 0.5 : 1 };
-  const sizes = small ? { padding: '5px 12px', fontSize: 12 } : { padding: '9px 18px', fontSize: 13 };
+  const base = { border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', fontWeight: 600, borderRadius: 'var(--border-radius)', display: 'inline-flex', alignItems: 'center', gap: 4, transition: 'opacity 0.15s', opacity: disabled ? 0.5 : 1 };
+  const sizes = small ? { padding: '3px 8px', fontSize: 11 } : { padding: '6px 14px', fontSize: 12 };
   const variants = {
     primary: { background: 'var(--color-primary)', color: '#fff' },
     danger:  { background: '#ef4444', color: '#fff' },
@@ -112,10 +112,23 @@ export default function AdminDashboard({ onShowLead }) {
   const [editCat, setEditCat] = useState(null);
   const [editSvc, setEditSvc] = useState(null);
   const [editPage, setEditPage] = useState(null);
+  const [editUser, setEditUser] = useState(null);
+  const [userRoleFilter, setUserRoleFilter] = useState('all');
   const [creditAdjust, setCreditAdjust] = useState(null);
   const [templates, setTemplates] = useState([]);
   const [editTmpl, setEditTmpl] = useState(null);
   const [tmplPreview, setTmplPreview] = useState(null);
+  const [steps, setSteps] = useState([]);
+  const [stepsLoading, setStepsLoading] = useState(false);
+  const [editStep, setEditStep] = useState(null);
+  const [testSmsTo, setTestSmsTo] = useState('');
+  const [testSmsSending, setTestSmsSending] = useState(false);
+  const [testSmsResult, setTestSmsResult] = useState(null);
+  const [testEmailTo, setTestEmailTo] = useState('');
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailResult, setTestEmailResult] = useState(null);
+  const [testStripeSending, setTestStripeSending] = useState(false);
+  const [testStripeResult, setTestStripeResult] = useState(null);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
 
@@ -129,7 +142,8 @@ export default function AdminDashboard({ onShowLead }) {
       api.get('/settings/all'),
       api.get('/pages?all=true'),
       api.get('/templates'),
-    ]).then(([u, l, c, s, p, st, pg, tmpl]) => {
+      api.get('/admin/how-it-works'),
+    ]).then(([u, l, c, s, p, st, pg, tmpl, stepsData]) => {
       const allUsers = u.users || u || [];
       setUsers(allUsers);
       setLeads(Array.isArray(l) ? l : []);
@@ -139,6 +153,7 @@ export default function AdminDashboard({ onShowLead }) {
       setSettings(Array.isArray(st) ? st : []);
       setPages(Array.isArray(pg) ? pg : []);
       setTemplates(Array.isArray(tmpl) ? tmpl : []);
+      setSteps(Array.isArray(stepsData) ? stepsData : []);
       setStats({
         users: allUsers.length,
         leads: (Array.isArray(l) ? l : []).length,
@@ -148,16 +163,85 @@ export default function AdminDashboard({ onShowLead }) {
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
+  // Load steps when Steps tab is opened (ensures data even if initial load failed or returned non-array)
+  useEffect(() => {
+    if (tab !== 'steps') return;
+    if (steps.length > 0) return; // already have data
+    setStepsLoading(true);
+    api.get('/admin/how-it-works')
+      .then((data) => {
+        if (Array.isArray(data)) setSteps(data);
+        else if (data?.error) flash(data.error);
+      })
+      .catch(() => flash('Failed to load steps'))
+      .finally(() => setStepsLoading(false));
+  }, [tab]);
+
+  const loadSteps = () => {
+    setStepsLoading(true);
+    api.get('/admin/how-it-works')
+      .then((data) => { if (Array.isArray(data)) setSteps(data); })
+      .catch(() => flash('Failed to load steps'))
+      .finally(() => setStepsLoading(false));
+  };
+
   const toggleUser = async (id, active) => {
-    await api.patch(`/users/${id}/status`, { isActive: !active });
+    const r = await api.patch(`/users/${id}/status`, { isActive: !active });
+    if (r.error) { flash(r.error); return; }
     setUsers(us => us.map(u => u.id === id ? { ...u, is_active: !active } : u));
   };
+
+  const saveUser = async () => {
+    if (!editUser) return;
+    setSaving(true);
+    try {
+      if (editUser.id) {
+        const payload = { email: editUser.email, role: editUser.role, firstName: editUser.firstName, lastName: editUser.lastName, phone: editUser.phone, isActive: editUser.isActive };
+        if (editUser.newPassword && editUser.newPassword.length >= 6) payload.newPassword = editUser.newPassword;
+        const r = await api.put(`/users/${editUser.id}`, payload);
+        if (r.error) { flash(r.error); setSaving(false); return; }
+        setUsers(us => us.map(u => u.id === editUser.id ? { ...u, email: editUser.email, role: editUser.role, first_name: editUser.firstName, last_name: editUser.lastName, phone: editUser.phone, is_active: editUser.isActive } : u));
+      } else {
+        const r = await api.post('/users', { email: editUser.email, password: editUser.password, role: editUser.role, firstName: editUser.firstName, lastName: editUser.lastName, phone: editUser.phone });
+        if (r.error) { flash(r.error); setSaving(false); return; }
+        setUsers(us => [...us, { id: r.id, email: r.email, role: r.role, first_name: editUser.firstName, last_name: editUser.lastName, phone: editUser.phone, is_active: true }]);
+      }
+      setEditUser(null);
+      flash('User saved');
+    } catch (e) { flash('Failed to save user'); }
+    setSaving(false);
+  };
+
+  const deleteUser = async (id) => {
+    if (!confirm('Deactivate this user? They will no longer be able to log in.')) return;
+    setSaving(true);
+    try {
+      const r = await api.del(`/users/${id}`);
+      if (r.error) { flash(r.error); setSaving(false); return; }
+      setUsers(us => us.map(u => u.id === id ? { ...u, is_active: false } : u));
+      setEditUser(null);
+      flash('User deactivated');
+    } catch (e) { flash('Failed to deactivate'); }
+    setSaving(false);
+  };
+
+  const { setColorKey, setDarkMode, setFontKey, setBorderRadius } = useTheme();
 
   // ── Settings save ──
   const saveSettings = async (group) => {
     setSaving(true);
     const groupSettings = settings.filter(s => s.setting_group === group);
     await api.put('/settings', { settings: groupSettings.map(s => ({ key: s.setting_key, value: s.setting_value, type: s.setting_type, group: s.setting_group, label: s.label })) });
+    if (group === 'appearance') {
+      const themeVal = groupSettings.find(s => s.setting_key === 'default_theme')?.setting_value || 'blue';
+      const darkVal = groupSettings.find(s => s.setting_key === 'default_dark_mode')?.setting_value;
+      const fontVal = groupSettings.find(s => s.setting_key === 'default_font')?.setting_value || 'inter';
+      const radiusVal = groupSettings.find(s => s.setting_key === 'default_border_radius')?.setting_value || 'md';
+      setColorKey(themeVal);
+      setDarkMode(darkVal === 'true' || darkVal === '1');
+      setFontKey(fontVal);
+      setBorderRadius(radiusVal);
+    }
     setSaving(false);
     flash(`${group} settings saved!`);
   };
@@ -222,6 +306,24 @@ export default function AdminDashboard({ onShowLead }) {
     flash('Service deleted');
   };
 
+  // ── Homepage steps (how it works) ──
+  const saveStep = async () => {
+    if (!editStep?.id) return;
+    setSaving(true);
+    try {
+      await api.put(`/services/how-it-works/${editStep.id}`, {
+        step_number: editStep.step_number,
+        icon_class: editStep.icon_class,
+        title: editStep.title,
+        description: editStep.description,
+      });
+      setSteps(ss => ss.map(s => s.id === editStep.id ? { ...s, ...editStep } : s));
+      setEditStep(null);
+      flash('Step saved');
+    } catch (e) { flash('Failed to save step'); }
+    setSaving(false);
+  };
+
   const border = dm ? '#1f2937' : '#e2e8f0';
   const tp = dm ? '#f1f5f9' : '#1e293b';
   const ts = dm ? '#94a3b8' : '#64748b';
@@ -233,14 +335,17 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'packages',   label: 'Packages',    icon: faCubes },
     { key: 'categories', label: 'Categories',  icon: faTag },
     { key: 'services',   label: 'Services',    icon: faLayerGroup },
+    { key: 'steps',      label: 'Homepage Steps', icon: faListOl },
     { key: 'pages',      label: 'Pages',       icon: faFileLines },
     { key: 'templates',  label: 'Templates',   icon: faBell },
     { key: 'settings',   label: 'Settings',    icon: faGear },
   ];
 
-  const filteredUsers = users.filter(u =>
-    !searchQ || u.email?.toLowerCase().includes(searchQ.toLowerCase()) || u.first_name?.toLowerCase().includes(searchQ.toLowerCase())
-  );
+  const filteredUsers = users.filter(u => {
+    const matchSearch = !searchQ || u.email?.toLowerCase().includes(searchQ.toLowerCase()) || u.first_name?.toLowerCase().includes(searchQ.toLowerCase()) || u.last_name?.toLowerCase().includes(searchQ.toLowerCase()) || (u.business_name && u.business_name.toLowerCase().includes(searchQ.toLowerCase()));
+    const matchRole = userRoleFilter === 'all' || u.role === userRoleFilter;
+    return matchSearch && matchRole;
+  });
 
   if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: dm ? '#0a0f1a' : '#f0f4f8' }}><FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: 32, color: 'var(--color-primary)' }} /></div>;
 
@@ -250,6 +355,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'twilio',     label: 'Twilio SMS', icon: faPhone },
     { key: 'homepage',   label: 'Homepage',   icon: faHome },
     { key: 'seo',        label: 'SEO',        icon: faMagnifyingGlass },
+    { key: 'analytics',  label: 'Google Analytics', icon: faChartLine },
     { key: 'email',      label: 'Email',      icon: faEnvelope },
     { key: 'appearance', label: 'Appearance', icon: faPalette },
     { key: 'advanced',   label: 'Spam / Security', icon: faShieldHalved },
@@ -306,14 +412,56 @@ export default function AdminDashboard({ onShowLead }) {
 
         {/* ══════════ USERS ══════════ */}
         {tab === 'users' && <>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+            <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 340 }}>
               <FontAwesomeIcon icon={faSearch} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: ts, fontSize: 13 }} />
               <input type="text" placeholder="Search users..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
                 style={{ width: '100%', padding: '9px 14px 9px 34px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box' }} />
             </div>
+            <select value={userRoleFilter} onChange={e => setUserRoleFilter(e.target.value)}
+              style={{ padding: '9px 12px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#f8fafc', color: tp }}>
+              <option value="all">All (Users &amp; Providers)</option>
+              <option value="consumer">Consumers only</option>
+              <option value="pro">Providers only</option>
+              <option value="admin">Admins only</option>
+            </select>
+            <Btn onClick={() => setEditUser({ email: '', password: '', role: 'consumer', firstName: '', lastName: '', phone: '' })}><FontAwesomeIcon icon={faPlus} />Add User</Btn>
             <span style={{ fontSize: 13, color: ts }}>{filteredUsers.length} users</span>
           </div>
+
+          {editUser && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editUser.id ? 'Edit User' : 'New User'}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Email" value={editUser.email||''} onChange={v => setEditUser({...editUser, email: v})} dm={dm} type="email" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Role</label>
+                <select value={editUser.role||'consumer'} onChange={e => setEditUser({...editUser, role: e.target.value})}
+                  style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="consumer">Consumer</option>
+                  <option value="pro">Provider (Pro)</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <Input label="First name" value={editUser.firstName??editUser.first_name??''} onChange={v => setEditUser({...editUser, firstName: v})} dm={dm} />
+              <Input label="Last name" value={editUser.lastName??editUser.last_name??''} onChange={v => setEditUser({...editUser, lastName: v})} dm={dm} />
+              <Input label="Phone" value={editUser.phone||''} onChange={v => setEditUser({...editUser, phone: v})} dm={dm} />
+              {editUser.id ? (
+                <Input label="New password (leave blank to keep)" value={editUser.newPassword||''} onChange={v => setEditUser({...editUser, newPassword: v})} dm={dm} type="password" placeholder="Optional" />
+              ) : (
+                <Input label="Password" value={editUser.password||''} onChange={v => setEditUser({...editUser, password: v})} dm={dm} type="password" />
+              )}
+              {editUser.id && (
+                <label style={{ fontSize: 13, color: tp, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 14 }}>
+                  <input type="checkbox" checked={editUser.isActive !== false} onChange={e => setEditUser({...editUser, isActive: e.target.checked})} />
+                  Active (can log in)
+                </label>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Btn onClick={saveUser} disabled={saving || !editUser.email || (!editUser.id && !editUser.password)}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}</Btn>
+              <Btn variant="ghost" onClick={() => setEditUser(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
 
           {/* Credit Adjust Modal */}
           {creditAdjust && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
@@ -338,19 +486,22 @@ export default function AdminDashboard({ onShowLead }) {
             </div>
           </Card>}
 
-          <Card dm={dm}><Table headers={['ID','Name','Email','Role','Active','Last Login','Actions']} dm={dm}>
+          <Card dm={dm}><Table headers={['ID','Name','Email','Role','Provider','Active','Last Login','Actions']} dm={dm}>
             {filteredUsers.map(u => (
               <tr key={u.id} style={{ borderBottom: `1px solid ${border}` }}>
                 <Td dm={dm}>#{u.id}</Td>
                 <Td dm={dm} fw={600}>{u.first_name || ''} {u.last_name || ''}</Td>
                 <Td dm={dm}>{u.email}</Td>
                 <Td dm={dm}><Badge color={u.role==='admin'?'#dc2626':u.role==='pro'?'#2563eb':'#16a34a'} bg={u.role==='admin'?'#fee2e2':u.role==='pro'?'#dbeafe':'#dcfce7'}>{u.role}</Badge></Td>
+                <Td dm={dm}>{u.role === 'pro' && u.business_name ? u.business_name : '—'}</Td>
                 <Td dm={dm}><FontAwesomeIcon icon={u.is_active ? faCheckCircle : faXmarkCircle} style={{ color: u.is_active ? '#22c55e' : '#ef4444', fontSize: 15 }} /></Td>
                 <Td dm={dm}>{u.last_login ? new Date(u.last_login).toLocaleString() : '—'}</Td>
                 <Td dm={dm}>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <Btn small variant={u.is_active ? 'danger' : 'success'} onClick={() => toggleUser(u.id, u.is_active)}><FontAwesomeIcon icon={u.is_active ? faToggleOff : faToggleOn} /></Btn>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <Btn small onClick={() => setEditUser({ id: u.id, email: u.email, role: u.role, firstName: u.first_name, lastName: u.last_name, phone: u.phone, isActive: u.is_active })}><FontAwesomeIcon icon={faPen} />Edit</Btn>
+                    <Btn small variant={u.is_active ? 'danger' : 'success'} onClick={() => toggleUser(u.id, u.is_active)} title={u.is_active ? 'Deactivate' : 'Activate'}><FontAwesomeIcon icon={u.is_active ? faToggleOff : faToggleOn} /></Btn>
                     {u.role === 'pro' && <Btn small onClick={() => setCreditAdjust({ proId: u.pro_id || u.id, proName: `${u.first_name||''} ${u.last_name||''}`.trim() || u.email, amount: '', reason: '' })}><FontAwesomeIcon icon={faCubes} />Credits</Btn>}
+                    {u.is_active && user?.id !== u.id && <Btn small variant="danger" onClick={() => deleteUser(u.id)}><FontAwesomeIcon icon={faTrash} /></Btn>}
                   </div>
                 </Td>
               </tr>
@@ -428,7 +579,7 @@ export default function AdminDashboard({ onShowLead }) {
         {tab === 'categories' && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Categories ({categories.length})</h3>
-            <Btn onClick={() => setEditCat({ name: '', slug: '', iconClass: '', description: '', sortOrder: categories.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Category</Btn>
+            <Btn onClick={() => setEditCat({ name: '', slug: '', iconClass: '', description: '', tags: '', sortOrder: categories.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Category</Btn>
           </div>
           {editCat && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editCat.id ? 'Edit Category' : 'New Category'}</h4>
@@ -437,6 +588,9 @@ export default function AdminDashboard({ onShowLead }) {
               <Input label="Slug" value={editCat.slug||''} onChange={v => setEditCat({...editCat, slug: v})} dm={dm} />
               <Input label="Icon Class" value={editCat.iconClass||editCat.icon_class||''} onChange={v => setEditCat({...editCat, iconClass: v})} dm={dm} placeholder="e.g. faWrench" />
               <Input label="Sort Order" value={editCat.sortOrder||editCat.sort_order||''} onChange={v => setEditCat({...editCat, sortOrder: v})} dm={dm} type="number" />
+              <div style={{ gridColumn: '1 / -1' }}>
+              <Input label="Tags" value={editCat.tags||''} onChange={v => setEditCat({...editCat, tags: v})} dm={dm} placeholder="Comma-separated, e.g. plumbing, repair" />
+            </div>
             </div>
             <Input label="Description" value={editCat.description||''} onChange={v => setEditCat({...editCat, description: v})} dm={dm} multiline />
             <div style={{ display: 'flex', gap: 8 }}>
@@ -450,10 +604,10 @@ export default function AdminDashboard({ onShowLead }) {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <div>
                     <h4 style={{ fontSize: 15, fontWeight: 700, color: tp }}>{c.name}</h4>
-                    <p style={{ fontSize: 12, color: ts }}>/{c.slug} · {c.icon_class} · {c.services?.length || 0} services</p>
+                    <p style={{ fontSize: 12, color: ts }}>/{c.slug} · {c.icon_class} · {c.services?.length || 0} services {c.tags ? `· ${c.tags}` : ''}</p>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <Btn small onClick={() => setEditCat({ ...c, iconClass: c.icon_class, sortOrder: c.sort_order })}><FontAwesomeIcon icon={faPen} /></Btn>
+                    <Btn small onClick={() => setEditCat({ ...c, iconClass: c.icon_class, sortOrder: c.sort_order, tags: c.tags || '' })}><FontAwesomeIcon icon={faPen} /></Btn>
                     <Btn small variant="danger" onClick={() => deleteCat(c.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
                   </div>
                 </div>
@@ -469,14 +623,15 @@ export default function AdminDashboard({ onShowLead }) {
         {tab === 'services' && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Services ({services.length})</h3>
-            <Btn onClick={() => setEditSvc({ categoryId: categories[0]?.id, name: '', slug: '', iconClass: '', minPrice: '', priceUnit: 'per job' })}><FontAwesomeIcon icon={faPlus} />Add Service</Btn>
+            <Btn onClick={() => setEditSvc({ categoryId: categories[0]?.id, name: '', slug: '', iconClass: '', cardImageUrl: '', minPrice: '', priceUnit: 'per job' })}><FontAwesomeIcon icon={faPlus} />Add Service</Btn>
           </div>
           {editSvc && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editSvc.id ? 'Edit Service' : 'New Service'}</h4>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
               <Input label="Name" value={editSvc.name||''} onChange={v => setEditSvc({...editSvc, name: v})} dm={dm} />
               <Input label="Slug" value={editSvc.slug||''} onChange={v => setEditSvc({...editSvc, slug: v})} dm={dm} />
-              <Input label="Icon Class" value={editSvc.iconClass||editSvc.icon_class||''} onChange={v => setEditSvc({...editSvc, iconClass: v})} dm={dm} placeholder="faWrench" />
+              <Input label="Icon Class" value={editSvc.iconClass||editSvc.icon_class||''} onChange={v => setEditSvc({...editSvc, iconClass: v})} dm={dm} placeholder="faWrench (used when no card image)" />
+              <Input label="Card image URL" value={editSvc.cardImageUrl||editSvc.card_image_url||''} onChange={v => setEditSvc({...editSvc, cardImageUrl: v})} dm={dm} placeholder="https://... (optional; overrides icon on browse cards)" />
               <div style={{ marginBottom: 14 }}>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Category</label>
                 <select value={editSvc.categoryId||editSvc.category_id||''} onChange={e => setEditSvc({...editSvc, categoryId: parseInt(e.target.value)})}
@@ -492,13 +647,13 @@ export default function AdminDashboard({ onShowLead }) {
               <Btn variant="ghost" onClick={() => setEditSvc(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
             </div>
           </Card>}
-          <Card dm={dm}><Table headers={['ID','Name','Slug','Icon','Category','Rating','Reviews','Price','Active','Actions']} dm={dm}>
+          <Card dm={dm}><Table headers={['ID','Name','Slug','Icon / Image','Category','Rating','Reviews','Price','Active','Actions']} dm={dm}>
             {services.map(s => (
               <tr key={s.id} style={{ borderBottom: `1px solid ${border}` }}>
                 <Td dm={dm}>#{s.id}</Td>
                 <Td dm={dm} fw={600}>{s.name}</Td>
                 <Td dm={dm}>{s.slug}</Td>
-                <Td dm={dm}>{s.icon_class}</Td>
+                <Td dm={dm}>{s.card_image_url ? <span title={s.card_image_url}>Image</span> : s.icon_class}</Td>
                 <Td dm={dm}>{s.category_name||'—'}</Td>
                 <Td dm={dm}><FontAwesomeIcon icon={faStar} style={{ color: '#facc15', marginRight: 4, fontSize: 11 }} />{s.avg_rating}</Td>
                 <Td dm={dm}>{s.review_label || s.review_count}</Td>
@@ -513,6 +668,71 @@ export default function AdminDashboard({ onShowLead }) {
               </tr>
             ))}
           </Table></Card>
+        </>}
+
+        {/* ══════════ HOMEPAGE STEPS (HOW IT WORKS) ══════════ */}
+        {tab === 'steps' && <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Homepage “How it works” steps</h3>
+              <p style={{ fontSize: 13, color: ts, marginTop: 4 }}>Edit the steps shown for homeowners and for professionals on the homepage. The same content is shown on the main site.</p>
+            </div>
+            <Btn onClick={loadSteps} disabled={stepsLoading} variant="ghost" small>
+              {stepsLoading ? <><FontAwesomeIcon icon={faSpinner} spin /> Loading…</> : <>Refresh</>}
+            </Btn>
+          </div>
+          {stepsLoading && steps.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: ts }}><FontAwesomeIcon icon={faSpinner} spin /> Loading steps…</div>
+          )}
+          {editStep && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Edit step — {editStep.audience === 'pro' ? 'For professionals' : 'For homeowners'}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Step number" value={String(editStep.step_number ?? '')} onChange={v => setEditStep({ ...editStep, step_number: parseInt(v) || 1 })} dm={dm} type="number" />
+              <Input label="Icon class" value={editStep.icon_class ?? ''} onChange={v => setEditStep({ ...editStep, icon_class: v })} dm={dm} placeholder="e.g. faClipboardList" />
+            </div>
+            <Input label="Title" value={editStep.title ?? ''} onChange={v => setEditStep({ ...editStep, title: v })} dm={dm} />
+            <Input label="Description" value={editStep.description ?? ''} onChange={v => setEditStep({ ...editStep, description: v })} dm={dm} multiline />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Btn onClick={saveStep} disabled={saving || !editStep.title}><FontAwesomeIcon icon={faFloppyDisk} />Save</Btn>
+              <Btn variant="ghost" onClick={() => setEditStep(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <Card dm={dm} style={{ padding: 18 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 700, color: ts, marginBottom: 12, textTransform: 'uppercase' }}>For homeowners</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {steps.filter(s => s.audience === 'consumer').map(step => (
+                  <div key={step.id} style={{ padding: 12, background: dm ? '#1e293b' : '#f8fafc', borderRadius: 'var(--border-radius)', border: `1px solid ${border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: ts }}>Step {step.step_number}</span>
+                        <div style={{ fontWeight: 600, color: tp, marginTop: 2 }}>{step.title}</div>
+                        <p style={{ fontSize: 12, color: ts, marginTop: 4, marginBottom: 0 }}>{step.description?.slice(0, 80)}{step.description?.length > 80 ? '…' : ''}</p>
+                      </div>
+                      <Btn small onClick={() => setEditStep({ ...step })}><FontAwesomeIcon icon={faPen} /></Btn>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <Card dm={dm} style={{ padding: 18 }}>
+              <h4 style={{ fontSize: 13, fontWeight: 700, color: ts, marginBottom: 12, textTransform: 'uppercase' }}>For professionals</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {steps.filter(s => s.audience === 'pro').map(step => (
+                  <div key={step.id} style={{ padding: 12, background: dm ? '#1e293b' : '#f8fafc', borderRadius: 'var(--border-radius)', border: `1px solid ${border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <div>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: ts }}>Step {step.step_number}</span>
+                        <div style={{ fontWeight: 600, color: tp, marginTop: 2 }}>{step.title}</div>
+                        <p style={{ fontSize: 12, color: ts, marginTop: 4, marginBottom: 0 }}>{step.description?.slice(0, 80)}{step.description?.length > 80 ? '…' : ''}</p>
+                      </div>
+                      <Btn small onClick={() => setEditStep({ ...step })}><FontAwesomeIcon icon={faPen} /></Btn>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
         </>}
 
         {/* ══════════ PAGES (CMS) ══════════ */}
@@ -760,6 +980,43 @@ export default function AdminDashboard({ onShowLead }) {
                     <FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}
                   </Btn>
                 </div>
+                {g.key === 'appearance' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Color theme</label>
+                      <select value={getSettingVal('default_theme') || 'blue'} onChange={e => updateSetting('default_theme', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                        {Object.entries(themeMap).map(([key, t]) => (
+                          <option key={key} value={key}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Font</label>
+                      <select value={getSettingVal('default_font') || 'inter'} onChange={e => updateSetting('default_font', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                        {Object.entries(fontOptionsMap).map(([key, f]) => (
+                          <option key={key} value={key}>{f.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Border radius</label>
+                      <select value={getSettingVal('default_border_radius') || 'md'} onChange={e => updateSetting('default_border_radius', e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                        {borderRadiusOpts.map(r => (
+                          <option key={r.key} value={r.key}>{r.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: tp }}>
+                        <input type="checkbox" checked={getSettingVal('default_dark_mode') === 'true' || getSettingVal('default_dark_mode') === '1'} onChange={e => updateSetting('default_dark_mode', e.target.checked ? 'true' : 'false')} />
+                        Default dark mode
+                      </label>
+                    </div>
+                  </div>
+                ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: g.key === 'homepage' ? '1fr' : '1fr 1fr', gap: '0 16px' }}>
                   {groupSettings.map(s => (
                     <div key={s.setting_key} style={{ marginBottom: 14 }}>
@@ -784,6 +1041,67 @@ export default function AdminDashboard({ onShowLead }) {
                     </div>
                   ))}
                 </div>
+                )}
+                {g.key === 'twilio' && (
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 600, color: tp, marginBottom: 8 }}>Test SMS</h4>
+                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Send a test message to a verified number (e.g. your Twilio trial verified number).</p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input type="tel" placeholder="+15551234567" value={testSmsTo} onChange={e => { setTestSmsTo(e.target.value); setTestSmsResult(null); }}
+                        style={{ width: 180, padding: '6px 10px', fontSize: 12, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box' }} />
+                      <Btn small onClick={async () => {
+                        if (!testSmsTo.trim()) return flash('Enter a phone number');
+                        setTestSmsSending(true); setTestSmsResult(null);
+                        try {
+                          const r = await api.post('/settings/test-sms', { to: testSmsTo.trim() });
+                          if (r.error) { flash(r.error); setTestSmsResult({ ok: false, msg: r.error }); }
+                          else { setTestSmsResult({ ok: true, msg: r.mock ? 'Sent (mock — SMS not configured)' : 'Test SMS sent!' }); flash('Test SMS sent'); }
+                        } catch (e) { setTestSmsResult({ ok: false, msg: 'Request failed' }); flash('Failed to send'); }
+                        setTestSmsSending(false);
+                      }} disabled={testSmsSending}>{(testSmsSending ? 'Sending...' : 'Send test SMS')}</Btn>
+                    </div>
+                    {testSmsResult && <p style={{ fontSize: 12, marginTop: 8, color: testSmsResult.ok ? '#16a34a' : '#ef4444' }}>{testSmsResult.msg}</p>}
+                  </div>
+                )}
+                {g.key === 'email' && (
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 600, color: tp, marginBottom: 8 }}>Test Email</h4>
+                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Send a test email to verify SMTP settings.</p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <input type="email" placeholder="you@example.com" value={testEmailTo} onChange={e => { setTestEmailTo(e.target.value); setTestEmailResult(null); }}
+                        style={{ width: 220, padding: '6px 10px', fontSize: 12, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box' }} />
+                      <Btn small onClick={async () => {
+                        if (!testEmailTo.trim()) return flash('Enter an email address');
+                        setTestEmailSending(true); setTestEmailResult(null);
+                        try {
+                          const r = await api.post('/settings/test-email', { to: testEmailTo.trim() });
+                          if (r.error) { flash(r.error); setTestEmailResult({ ok: false, msg: r.error }); }
+                          else { setTestEmailResult({ ok: true, msg: r.mock ? 'Sent (mock — SMTP not configured)' : 'Test email sent!' }); flash('Test email sent'); }
+                        } catch (e) { setTestEmailResult({ ok: false, msg: 'Request failed' }); flash('Failed to send'); }
+                        setTestEmailSending(false);
+                      }} disabled={testEmailSending}>{(testEmailSending ? 'Sending...' : 'Send test email')}</Btn>
+                    </div>
+                    {testEmailResult && <p style={{ fontSize: 12, marginTop: 8, color: testEmailResult.ok ? '#16a34a' : '#ef4444' }}>{testEmailResult.msg}</p>}
+                  </div>
+                )}
+                {g.key === 'stripe' && (
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 600, color: tp, marginBottom: 8 }}>Test Stripe</h4>
+                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Verify your Stripe secret key can connect to the API.</p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Btn small onClick={async () => {
+                        setTestStripeSending(true); setTestStripeResult(null);
+                        try {
+                          const r = await api.post('/settings/test-stripe', {});
+                          if (r.error) { flash(r.error); setTestStripeResult({ ok: false, msg: r.error }); }
+                          else { setTestStripeResult({ ok: true, msg: 'Stripe connection OK' }); flash('Stripe connection OK'); }
+                        } catch (e) { setTestStripeResult({ ok: false, msg: 'Request failed' }); flash('Failed'); }
+                        setTestStripeSending(false);
+                      }} disabled={testStripeSending}>{(testStripeSending ? 'Testing...' : 'Test Stripe connection')}</Btn>
+                    </div>
+                    {testStripeResult && <p style={{ fontSize: 12, marginTop: 8, color: testStripeResult.ok ? '#16a34a' : '#ef4444' }}>{testStripeResult.msg}</p>}
+                  </div>
+                )}
               </Card>
             );
           })}

@@ -5,10 +5,12 @@ import {
   faMapMarkerAlt, faClock, faDollarSign, faHome, faBriefcase,
   faShieldHalved, faStar, faArrowRight, faBan,
 } from '@fortawesome/free-solid-svg-icons';
+import { useSettings } from '../context/SettingsContext';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function ClaimPage({ token, onNavigate }) {
+  const { siteName } = useSettings();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -75,7 +77,7 @@ export default function ClaimPage({ token, onNavigate }) {
         <h2 style={{ fontSize: 20, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>Link Not Available</h2>
         <p style={{ color: '#64748b', fontSize: 14, lineHeight: 1.6 }}>{error}</p>
         <button onClick={() => onNavigate?.('home')} style={{ ...btnStyle, background: 'var(--color-primary)', color: '#fff', marginTop: 24 }}>
-          Go to HomePro <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: 6 }} />
+          Go to {siteName} <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: 6 }} />
         </button>
       </div>
     </div>
@@ -103,7 +105,7 @@ export default function ClaimPage({ token, onNavigate }) {
           </p>
         )}
         <button onClick={() => onNavigate?.('home')} style={{ ...btnStyle, background: 'var(--color-primary)', color: '#fff', marginTop: 24 }}>
-          Go to HomePro <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: 6 }} />
+          Go to {siteName} <FontAwesomeIcon icon={faArrowRight} style={{ marginLeft: 6 }} />
         </button>
       </div>
     </div>
@@ -203,7 +205,7 @@ export default function ClaimPage({ token, onNavigate }) {
 
         {/* Trust footer */}
         <div style={{ textAlign: 'center', fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
-          <p>You're receiving this because you opted in to SMS lead notifications on HomePro.</p>
+          <p>You're receiving this because you opted in to SMS lead notifications on {siteName}.</p>
           <p>Reply STOP to any SMS to unsubscribe.</p>
         </div>
       </div>

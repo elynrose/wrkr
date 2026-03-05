@@ -4,6 +4,7 @@ const db      = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { addCredits, monthlyRefill } = require('../services/credits');
 const { getStripe } = require('../services/stripe');
+const { getSiteConfig } = require('../services/siteConfig');
 
 // POST /api/payments/create-checkout — Stripe Checkout for subscription
 router.post('/create-checkout', authenticate, requireRole('pro'), async (req, res) => {
@@ -71,6 +72,7 @@ router.post('/buy-credits', authenticate, requireRole('pro'), async (req, res) =
       await db.query('UPDATE pros SET stripe_customer_id = ? WHERE id = ?', [customerId, pro.id]);
     }
 
+    const site = await getSiteConfig();
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'payment',
@@ -79,7 +81,7 @@ router.post('/buy-credits', authenticate, requireRole('pro'), async (req, res) =
         price_data: {
           currency: 'usd',
           unit_amount: Math.round(pricePerCredit * 100),
-          product_data: { name: `${qty} Lead Credits`, description: `${qty} credits for claiming leads on HomePro` },
+          product_data: { name: `${qty} Lead Credits`, description: `${qty} credits for claiming leads on ${site.site_name}` },
         },
         quantity: qty,
       }],

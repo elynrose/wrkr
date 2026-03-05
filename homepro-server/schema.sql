@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS categories (
   slug        VARCHAR(120)  UNIQUE NOT NULL,
   icon_class  VARCHAR(100),
   description TEXT,
+  tags        VARCHAR(500)  NULL COMMENT 'Comma-separated tags for filtering/search',
   sort_order  INT           DEFAULT 0,
   is_active   BOOLEAN       DEFAULT TRUE,
   created_at  TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
@@ -48,18 +49,19 @@ DROP TABLE IF EXISTS leads;
 DROP TABLE IF EXISTS services;
 
 CREATE TABLE IF NOT EXISTS services (
-  id            INT AUTO_INCREMENT PRIMARY KEY,
-  category_id   INT,
-  name          VARCHAR(100)   NOT NULL,
-  slug          VARCHAR(120)   UNIQUE NOT NULL,
-  icon_class    VARCHAR(100)   NOT NULL,
-  avg_rating    DECIMAL(2,1)   DEFAULT 4.5,
-  review_count  INT            DEFAULT 0,
-  review_label  VARCHAR(60),
-  min_price     VARCHAR(50),
-  price_unit    VARCHAR(30)    DEFAULT 'per job',
-  is_active     BOOLEAN        DEFAULT TRUE,
-  created_at    TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  category_id     INT,
+  name            VARCHAR(100)   NOT NULL,
+  slug            VARCHAR(120)   UNIQUE NOT NULL,
+  icon_class      VARCHAR(100)   NOT NULL,
+  card_image_url  VARCHAR(500)   NULL COMMENT 'Optional image URL for browse card; if set, shown instead of icon',
+  avg_rating      DECIMAL(2,1)   DEFAULT 4.5,
+  review_count    INT            DEFAULT 0,
+  review_label    VARCHAR(60),
+  min_price       VARCHAR(50),
+  price_unit      VARCHAR(30)    DEFAULT 'per job',
+  is_active       BOOLEAN        DEFAULT TRUE,
+  created_at      TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 
@@ -382,7 +384,7 @@ CREATE TABLE IF NOT EXISTS settings (
   setting_key   VARCHAR(120) UNIQUE NOT NULL,
   setting_value TEXT,
   setting_type  ENUM('string','number','boolean','json','secret') DEFAULT 'string',
-  setting_group ENUM('general','stripe','twilio','homepage','seo','email','appearance','advanced') DEFAULT 'general',
+  setting_group ENUM('general','stripe','twilio','homepage','seo','email','appearance','advanced','analytics') DEFAULT 'general',
   label         VARCHAR(200),
   description   TEXT,
   is_public     BOOLEAN DEFAULT TRUE,

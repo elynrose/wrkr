@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { getSettings } from '../services/api';
 
 const themes = {
   blue: {
@@ -49,6 +50,13 @@ const fontOptions = {
   roboto: { name: 'Roboto', value: "'Roboto', sans-serif" },
 };
 
+const borderRadiusOptions = [
+  { key: 'sm', label: 'Sharp' },
+  { key: 'md', label: 'Rounded' },
+  { key: 'lg', label: 'Pill-ish' },
+  { key: 'full', label: 'Full' },
+];
+
 const ThemeContext = createContext(null);
 
 export function ThemeProvider({ children }) {
@@ -56,6 +64,20 @@ export function ThemeProvider({ children }) {
   const [darkMode, setDarkMode] = useState(false);
   const [fontKey, setFontKey] = useState('inter');
   const [borderRadius, setBorderRadius] = useState('md');
+  const [themeLoaded, setThemeLoaded] = useState(false);
+
+  // Load theme from admin settings (site-wide)
+  useEffect(() => {
+    getSettings()
+      .then((data) => {
+        if (data.default_theme && themes[data.default_theme]) setColorKey(data.default_theme);
+        if (typeof data.default_dark_mode !== 'undefined') setDarkMode(data.default_dark_mode === true || data.default_dark_mode === 'true' || data.default_dark_mode === '1');
+        if (data.default_font && fontOptions[data.default_font]) setFontKey(data.default_font);
+        if (data.default_border_radius && borderRadiusOptions.some(r => r.key === data.default_border_radius)) setBorderRadius(data.default_border_radius);
+      })
+      .catch(() => {})
+      .finally(() => setThemeLoaded(true));
+  }, []);
 
   const theme = themes[colorKey];
   const font = fontOptions[fontKey];
@@ -87,7 +109,8 @@ export function ThemeProvider({ children }) {
         fontKey, setFontKey,
         borderRadius, setBorderRadius,
         theme, font,
-        themes, fontOptions,
+        themes, fontOptions, borderRadiusOptions,
+        themeLoaded,
       }}
     >
       {children}
@@ -96,3 +119,4 @@ export function ThemeProvider({ children }) {
 }
 
 export const useTheme = () => useContext(ThemeContext);
+export { themes, fontOptions, borderRadiusOptions };
