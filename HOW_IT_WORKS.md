@@ -87,14 +87,13 @@ After a lead is **claimed**:
 
 ### 5. Admin
 
-Admins sign in and use the **Admin Dashboard** (overview, users, leads, packages, categories, services, **Homepage Steps**, pages, templates, settings).
+Admins sign in and use the **Admin Dashboard** (overview, users, leads, packages, categories, services, pages, templates, settings).
 
-- **Users** — List/filter by role (consumer, pro, admin). Create, edit, deactivate users. Adjust pro **credits**.
-- **Leads** — List all leads with filters. **Claimed by** and **follow-up status** are shown. Open a **lead details** page: customer info, notes, activity, matches, claims, status, priority. Manually **re-run matching** for a lead. **Run follow-ups** to send due follow-up SMS immediately.
+- **Users** — List/filter by role (consumer, pro, admin). Paginated. Create, edit, deactivate users. Adjust pro **credits**.
+- **Leads** — List all leads with filters; paginated. **Claimed by** and **follow-up status** are shown. Open a **lead details** page: customer info, notes, activity, matches, claims, status, priority. Manually **re-run matching** for a lead. **Run follow-ups** to send due follow-up SMS immediately.
 - **Packages** — Subscription plans (Stripe price IDs, credits, features).
 - **Categories & Services** — What consumers can choose; services can have icons or card images.
-- **Homepage Steps** — Edit the “How it works” steps for homeowners and pros.
-- **Pages** — CMS: create/edit static pages (WYSIWYG), footer links, meta.
+- **Pages** — CMS: create/edit static pages (WYSIWYG), footer links, meta. **Sub-tab: Homepage Steps** — Edit the “How it works” steps for homeowners and pros.
 - **Templates** — Edit **email and SMS templates** (welcome, lead match, follow-up, etc.) and variables.
 - **Settings** — General (site name, support email/phone), Stripe, Twilio (SMS + inbound webhook URL), Email (SMTP), Homepage, SEO, **Google Analytics**, Appearance (theme, font, dark mode), Spam/Security. **Test** buttons for SMS, email, and Stripe.
 
