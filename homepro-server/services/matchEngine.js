@@ -4,7 +4,7 @@ const { sendSMS, isConfigured: smsConfigured, getMatchConfig } = require('./sms'
 const { deductCredits } = require('./credits');
 const { sendLeadMatchEmail, getSmsTemplate, renderTemplate } = require('./email');
 
-const MAX_CLAIMS = 3;
+const MAX_CLAIMS = 1;
 
 function generateToken() {
   return crypto.randomBytes(24).toString('hex');
@@ -153,7 +153,7 @@ async function matchAndNotify(leadId) {
             (urgencyLabel ? ` [${urgencyLabel}]` : '') +
             `\n${lead.description ? lead.description.substring(0, 80) : 'Customer needs help'}` +
             `\n\nClaim this lead: ${getClaimUrl(token)}` +
-            `\n\nFirst ${MAX_CLAIMS} pros to respond get the job. Expires in ${MATCH_EXPIRY_HOURS}h.` +
+            `\n\nFirst to respond gets exclusive access. Expires in ${MATCH_EXPIRY_HOURS}h.` +
             `\nReply STOP to opt out.`;
         }
 
@@ -349,10 +349,14 @@ async function confirmClaim(token) {
     await conn.query('INSERT INTO lead_claims (lead_id, pro_id, price_paid) VALUES (?,?,?)',
       [m.lead_id, m.pid, m.lead_value]);
 
-    // Update lead
+    // Update lead — single claim model: mark as matched, record who claimed
     await conn.query(
-      "UPDATE leads SET claim_count = claim_count + 1, status = IF(claim_count + 1 >= ?, 'matched', 'matching') WHERE id = ?",
-      [MAX_CLAIMS, m.lead_id]
+      `UPDATE leads SET claim_count = 1, max_claims = 1, is_claimed = TRUE,
+              status = 'matched', claimed_by_pro_id = ?, claimed_by_business = ?,
+              follow_up_status = 'pending',
+              follow_up_next_at = DATE_ADD(NOW(), INTERVAL (SELECT COALESCE((SELECT setting_value FROM settings WHERE setting_key='followup_delay_hours'),24)) HOUR)
+       WHERE id = ?`,
+      [m.pid, m.business_name, m.lead_id]
     );
 
     // Deduct credit via credit service
@@ -365,23 +369,21 @@ async function confirmClaim(token) {
     // Update match status
     await conn.query("UPDATE lead_matches SET status = 'accepted', responded_at = NOW() WHERE id = ?", [m.id]);
 
+    // Expire ALL other pending matches for this lead (single-claim)
+    await conn.query(
+      "UPDATE lead_matches SET status = 'expired' WHERE lead_id = ? AND id != ? AND status IN ('pending','notified','viewed')",
+      [m.lead_id, m.id]
+    );
+
     // Activity log
     await conn.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [m.lead_id, m.user_id, 'lead_claimed', `Claimed via SMS link by ${m.business_name}`]);
+      [m.lead_id, m.user_id, 'lead_claimed', `Claimed by ${m.business_name} (exclusive)`]);
 
-    // Check if lead is now full — expire remaining matches
-    const newClaimCount = m.claim_count + 1;
-    if (newClaimCount >= MAX_CLAIMS) {
-      await conn.query(
-        "UPDATE lead_matches SET status = 'expired' WHERE lead_id = ? AND status IN ('pending','notified','viewed')",
-        [m.lead_id]
-      );
-      await conn.query('INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-        [m.lead_id, 'lead_fully_matched', `All ${MAX_CLAIMS} pro slots filled`]);
-    }
+    await conn.query('INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
+      [m.lead_id, 'other_matches_expired', 'All other matches expired — single-claim lead']);
 
     await conn.commit();
-    return { success: true, message: 'Lead claimed successfully!' };
+    return { success: true, message: 'Lead claimed successfully! You are the exclusive provider for this lead.' };
   } catch (err) {
     await conn.rollback();
     throw err;

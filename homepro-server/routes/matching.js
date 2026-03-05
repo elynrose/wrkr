@@ -69,7 +69,7 @@ router.get('/lead/:leadId', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/matching/my-leads — pro: get all leads matched to the current pro
+// GET /api/matching/my-leads — pro: get leads matched to the current pro (paginated)
 router.get('/my-leads', authenticate, requireRole('pro'), async (req, res) => {
   try {
     const [[pro]] = await db.query('SELECT id FROM pros WHERE user_id = ?', [req.user.id]);
@@ -79,6 +79,16 @@ router.get('/my-leads', authenticate, requireRole('pro'), async (req, res) => {
     await db.query(
       `UPDATE lead_matches SET status = 'expired'
        WHERE pro_id = ? AND status IN ('pending','notified','viewed') AND expires_at IS NOT NULL AND expires_at < NOW()`,
+      [pro.id]
+    );
+
+    const { page = 1, limit = 20 } = req.query;
+    const limitNum = Math.min(parseInt(limit) || 20, 100);
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM lead_matches lm JOIN leads l ON lm.lead_id = l.id WHERE lm.pro_id = ?`,
       [pro.id]
     );
 
@@ -97,11 +107,11 @@ router.get('/my-leads', authenticate, requireRole('pro'), async (req, res) => {
        ORDER BY
          FIELD(lm.status, 'notified','viewed','pending','accepted','declined','expired'),
          lm.created_at DESC
-       LIMIT 100`,
-      [pro.id]
+       LIMIT ? OFFSET ?`,
+      [pro.id, limitNum, offset]
     );
 
-    res.json(rows);
+    res.json({ leads: rows, total, page: pageNum, limit: limitNum });
   } catch (err) {
     console.error('GET /matching/my-leads error:', err);
     res.status(500).json({ error: 'Server error' });

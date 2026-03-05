@@ -60,40 +60,58 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
   }
 });
 
-// GET /api/leads — list leads (admin only)
+// GET /api/leads — list leads (admin only), paginated
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const { zip, city, service_id, status, source, priority, limit = 50, page = 1 } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    let query = 'SELECT * FROM leads WHERE 1=1';
+    const { zip, city, service_id, status, source, priority, limit = 25, page = 1 } = req.query;
+    const limitNum = Math.min(parseInt(limit) || 25, 100);
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const baseWhere = [];
     const params = [];
+    if (zip)        { baseWhere.push('l.zip = ?');          params.push(zip); }
+    if (city)       { baseWhere.push('l.city_name LIKE ?');  params.push(`%${city}%`); }
+    if (service_id) { baseWhere.push('l.service_id = ?');   params.push(service_id); }
+    if (status)     { baseWhere.push('l.status = ?');       params.push(status); }
+    if (source)     { baseWhere.push('l.source = ?');       params.push(source); }
+    if (priority)   { baseWhere.push('l.priority = ?');     params.push(priority); }
+    const whereClause = baseWhere.length ? ' AND ' + baseWhere.join(' AND ') : '';
 
-    if (zip)        { query += ' AND zip = ?';          params.push(zip); }
-    if (city)       { query += ' AND city_name LIKE ?';  params.push(`%${city}%`); }
-    if (service_id) { query += ' AND service_id = ?';   params.push(service_id); }
-    if (status)     { query += ' AND status = ?';       params.push(status); }
-    if (source)     { query += ' AND source = ?';       params.push(source); }
-    if (priority)   { query += ' AND priority = ?';     params.push(priority); }
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM leads l WHERE 1=1${whereClause}`,
+      params
+    );
 
-    query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    params.push(parseInt(limit), offset);
-
-    const [rows] = await db.query(query, params);
-    res.json(rows);
+    const [rows] = await db.query(
+      `SELECT l.*, l.claimed_by_business, l.claimed_by_pro_id, l.follow_up_status, l.follow_up_count, l.sms_opt_out
+       FROM leads l WHERE 1=1${whereClause} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`,
+      [...params, limitNum, offset]
+    );
+    res.json({ leads: rows, total, page: pageNum, limit: limitNum });
   } catch (err) {
     console.error('GET /leads error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// GET /api/leads/mine — current user's leads
+// GET /api/leads/mine — current user's leads, paginated
 router.get('/mine', authenticate, async (req, res) => {
   try {
-    const [rows] = await db.query(
-      'SELECT * FROM leads WHERE user_id = ? OR email = ? ORDER BY created_at DESC LIMIT 100',
+    const { page = 1, limit = 10 } = req.query;
+    const limitNum = Math.min(parseInt(limit) || 10, 50);
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const offset = (pageNum - 1) * limitNum;
+
+    const [[{ total }]] = await db.query(
+      'SELECT COUNT(*) AS total FROM leads WHERE user_id = ? OR email = ?',
       [req.user.id, req.user.email]
     );
-    res.json(rows);
+    const [rows] = await db.query(
+      'SELECT * FROM leads WHERE user_id = ? OR email = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [req.user.id, req.user.email, limitNum, offset]
+    );
+    res.json({ leads: rows, total, page: pageNum, limit: limitNum });
   } catch (err) {
     console.error('GET /leads/mine error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -189,9 +207,9 @@ router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => 
     if (!leads.length) { await conn.rollback(); return res.status(404).json({ error: 'Lead not found' }); }
 
     const lead = leads[0];
-    if (lead.claim_count >= lead.max_claims) {
+    if (lead.claim_count >= 1 || lead.is_claimed) {
       await conn.rollback();
-      return res.status(409).json({ error: 'Lead has reached maximum claims' });
+      return res.status(409).json({ error: 'This lead has already been claimed by another provider' });
     }
 
     const [pros] = await conn.query('SELECT * FROM pros WHERE user_id = ?', [req.user.id]);
@@ -207,7 +225,20 @@ router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => 
     }
 
     await conn.query('INSERT INTO lead_claims (lead_id, pro_id, price_paid) VALUES (?,?,?)', [leadId, pro.id, lead.lead_value]);
-    await conn.query('UPDATE leads SET claim_count = claim_count + 1, status = IF(status = "new", "matching", status) WHERE id = ?', [leadId]);
+    await conn.query(
+      `UPDATE leads SET claim_count = 1, is_claimed = TRUE, status = 'matched',
+              claimed_by_pro_id = ?, claimed_by_business = ?,
+              follow_up_status = 'pending',
+              follow_up_next_at = DATE_ADD(NOW(), INTERVAL (SELECT COALESCE((SELECT setting_value FROM settings WHERE setting_key='followup_delay_hours'),24)) HOUR)
+       WHERE id = ?`,
+      [pro.id, pro.business_name, leadId]
+    );
+
+    // Expire other matches
+    await conn.query(
+      "UPDATE lead_matches SET status = 'expired' WHERE lead_id = ? AND status IN ('pending','notified','viewed')",
+      [leadId]
+    );
 
     await deductCredits(
       pro.id, req.user.id, 1, 'lead_claim',
@@ -216,7 +247,7 @@ router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => 
     );
 
     await conn.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [leadId, req.user.id, 'lead_claimed', `Claimed by ${pro.business_name}`]);
+      [leadId, req.user.id, 'lead_claimed', `Claimed exclusively by ${pro.business_name}`]);
 
     await conn.commit();
 

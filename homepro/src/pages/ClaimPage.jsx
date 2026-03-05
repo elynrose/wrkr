@@ -112,7 +112,6 @@ export default function ClaimPage({ token, onNavigate }) {
   );
 
   const m = data.match;
-  const spotsLeft = Math.max(0, m.maxClaims - m.claimCount);
   const urgencyMap = { within_24h: 'Within 24 Hours', this_week: 'This Week', this_month: 'This Month', flexible: 'Flexible' };
 
   return (
@@ -156,7 +155,7 @@ export default function ClaimPage({ token, onNavigate }) {
               )}
               <InfoBox icon={faHome} label="Property" value={m.propertyType || 'Residential'} />
               <InfoBox icon={faStar} label="Match Score" value={`${m.matchScore}/100`} />
-              <InfoBox icon={faShieldHalved} label="Spots Left" value={`${spotsLeft} of ${m.maxClaims}`} accent={spotsLeft <= 1} />
+              <InfoBox icon={faShieldHalved} label="Exclusive" value="First to claim wins" accent />
             </div>
 
             {m.leadValue && (
@@ -167,12 +166,10 @@ export default function ClaimPage({ token, onNavigate }) {
             )}
 
             {/* Urgency warning */}
-            {spotsLeft <= 1 && (
-              <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FontAwesomeIcon icon={faExclamationTriangle} />
-                <span><strong>Hurry!</strong> Only {spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} remaining for this lead.</span>
-              </div>
-            )}
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, padding: '12px 16px', marginBottom: 20, fontSize: 13, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FontAwesomeIcon icon={faExclamationTriangle} />
+              <span><strong>Act fast!</strong> First provider to claim gets exclusive access to this lead.</span>
+            </div>
 
             {/* Expiry */}
             {m.expiresAt && (
@@ -183,15 +180,14 @@ export default function ClaimPage({ token, onNavigate }) {
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleClaim} disabled={claiming || spotsLeft === 0} style={{
+              <button onClick={handleClaim} disabled={claiming} style={{
                 ...btnStyle, flex: 2,
-                background: spotsLeft === 0 ? '#94a3b8' : 'var(--color-primary)',
+                background: 'var(--color-primary)',
                 color: '#fff', fontSize: 16, padding: '14px 20px', fontWeight: 700,
-                cursor: spotsLeft === 0 ? 'not-allowed' : 'pointer',
+                cursor: claiming ? 'not-allowed' : 'pointer',
               }}>
                 {claiming ? <><FontAwesomeIcon icon={faSpinner} spin /> Claiming...</>
-                  : spotsLeft === 0 ? 'No Spots Left'
-                  : <><FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: 6 }} />Claim This Lead</>}
+                  : <><FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: 6 }} />Claim This Lead (Exclusive)</>}
               </button>
               <button onClick={handleDecline} disabled={declining} style={{
                 ...btnStyle, flex: 1,

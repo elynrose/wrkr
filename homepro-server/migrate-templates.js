@@ -169,8 +169,19 @@ async function main() {
 
 Claim this lead: {{claimUrl}}
 
-First {{maxClaims}} pros to respond get the job. Expires in {{expiryHours}}h.
+First to respond gets exclusive access. Expires in {{expiryHours}}h.
 Reply STOP to opt out.`,
+    },
+    {
+      slug: 'sms_followup_customer',
+      name: 'Customer Follow-up SMS',
+      channel: 'sms',
+      subject: null,
+      description: 'Follow-up sent to customer after a pro claims their lead',
+      variables: 'customerName, serviceName, businessName, siteName',
+      body: `Hi {{customerName}}! This is {{siteName}}. Did you get help with your {{serviceName}} request from {{businessName}}?
+
+Reply YES if you got help, NO if you still need assistance, or STOP to opt out.`,
     },
   ];
 

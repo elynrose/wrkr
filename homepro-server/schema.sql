@@ -184,8 +184,15 @@ CREATE TABLE IF NOT EXISTS leads (
   source       ENUM('website','api','referral','ad') DEFAULT 'website',
   lead_value   DECIMAL(10,2) DEFAULT 0.00,
   is_claimed   BOOLEAN       DEFAULT FALSE,
-  max_claims   INT           DEFAULT 4,
+  max_claims   INT           DEFAULT 1,
   claim_count  INT           DEFAULT 0,
+  claimed_by_pro_id INT     NULL,
+  claimed_by_business VARCHAR(200) NULL,
+  follow_up_count INT       DEFAULT 0,
+  follow_up_status ENUM('none','pending','sent','customer_yes','customer_no','stopped') DEFAULT 'none',
+  follow_up_last_sent_at TIMESTAMP NULL,
+  follow_up_next_at TIMESTAMP NULL,
+  sms_opt_out  BOOLEAN       DEFAULT FALSE,
   priority     ENUM('low','normal','high','urgent') DEFAULT 'normal',
   assigned_to  INT           NULL,
   follow_up_date DATE        NULL,
@@ -357,6 +364,22 @@ CREATE TABLE IF NOT EXISTS how_it_works (
   icon_class   VARCHAR(100)   NOT NULL,
   title        VARCHAR(120)   NOT NULL,
   description  TEXT           NOT NULL
+);
+
+-- ═══════════════════════════════════════════════════════════
+-- SMS INBOUND LOG (customer replies: YES/NO/STOP)
+-- ═══════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS sms_inbound (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  from_number VARCHAR(30) NOT NULL,
+  to_number   VARCHAR(30),
+  body        TEXT,
+  lead_id     INT NULL,
+  action_taken VARCHAR(60),
+  twilio_sid  VARCHAR(80),
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_from (from_number),
+  INDEX idx_lead (lead_id)
 );
 
 -- ═══════════════════════════════════════════════════════════

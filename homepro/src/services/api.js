@@ -52,7 +52,8 @@ export const getLeadsForPro = (proId) =>
 export const updateLeadStatus = (id, status) =>
   request(`/leads/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) });
 
-export const getMyLeads = () => request('/leads/mine');
+export const getMyLeads = (page = 1, limit = 10) =>
+  request(`/leads/mine?page=${page}&limit=${limit}`);
 
 // ── Pros ────────────────────────────────────
 export const signupPro = (data) =>

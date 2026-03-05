@@ -7,6 +7,7 @@ import {
   faGear, faCubes, faTag, faPlus, faPen, faTrash, faXmark, faPhone,
   faFloppyDisk, faHome, faMagnifyingGlass, faPalette, faFileLines, faEye,
   faBell, faEnvelopeOpenText, faCommentSms, faChartLine, faToggleOn as faToggleOnSolid, faListOl,
+  faChevronLeft, faChevronRight,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme, themes as themeMap, fontOptions as fontOptionsMap, borderRadiusOptions as borderRadiusOpts } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -88,6 +89,32 @@ function Table({ headers, children, dm }) {
 
 function Td({ children, dm, fw }) { return <td style={{ padding: '10px 14px', color: dm ? '#f1f5f9' : '#1e293b', fontWeight: fw }}>{children}</td>; }
 
+function PaginationBar({ page, total, limit, onPageChange, dm }) {
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const start = total === 0 ? 0 : (page - 1) * limit + 1;
+  const end = Math.min(page * limit, total);
+  const tp = dm ? '#f1f5f9' : '#1e293b';
+  const ts = dm ? '#94a3b8' : '#64748b';
+  const border = dm ? '#1f2937' : '#e2e8f0';
+  if (totalPages <= 1 && total <= limit) return null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, padding: '12px 14px', borderTop: `1px solid ${border}`, background: dm ? '#0f172a' : '#f8fafc' }}>
+      <span style={{ fontSize: 12, color: ts }}>Showing {start}–{end} of {total}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}
+          style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#fff', color: tp, cursor: page <= 1 ? 'not-allowed' : 'pointer', opacity: page <= 1 ? 0.5 : 1 }}>
+          <FontAwesomeIcon icon={faChevronLeft} /> Prev
+        </button>
+        <span style={{ fontSize: 12, color: ts }}>Page {page} of {totalPages}</span>
+        <button onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+          style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#fff', color: tp, cursor: page >= totalPages ? 'not-allowed' : 'pointer', opacity: page >= totalPages ? 0.5 : 1 }}>
+          Next <FontAwesomeIcon icon={faChevronRight} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────
 export default function AdminDashboard({ onShowLead }) {
   const { darkMode: dm } = useTheme();
@@ -100,6 +127,12 @@ export default function AdminDashboard({ onShowLead }) {
   const [stats, setStats] = useState({});
   const [users, setUsers] = useState([]);
   const [leads, setLeads] = useState([]);
+  const [usersPage, setUsersPage] = useState(1);
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersLimit] = useState(25);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsTotal, setLeadsTotal] = useState(0);
+  const [leadsLimit] = useState(25);
   const [categories, setCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [plans, setPlans] = useState([]);
@@ -121,6 +154,9 @@ export default function AdminDashboard({ onShowLead }) {
   const [steps, setSteps] = useState([]);
   const [stepsLoading, setStepsLoading] = useState(false);
   const [editStep, setEditStep] = useState(null);
+  const [pagesPage, setPagesPage] = useState(1);
+  const pagesLimit = 10;
+  const [pagesSubTab, setPagesSubTab] = useState('list');
   const [testSmsTo, setTestSmsTo] = useState('');
   const [testSmsSending, setTestSmsSending] = useState(false);
   const [testSmsResult, setTestSmsResult] = useState(null);
@@ -133,9 +169,10 @@ export default function AdminDashboard({ onShowLead }) {
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
 
   useEffect(() => {
+    const roleParam = userRoleFilter && userRoleFilter !== 'all' ? `&role=${userRoleFilter}` : '';
     Promise.all([
-      api.get('/users?limit=200'),
-      api.get('/leads?limit=100'),
+      api.get(`/users?page=1&limit=${usersLimit}${roleParam}`),
+      api.get(`/leads?page=1&limit=${leadsLimit}`),
       api.get('/categories'),
       api.get('/services?all=true'),
       api.get('/subscriptions/plans?all=true'),
@@ -143,10 +180,14 @@ export default function AdminDashboard({ onShowLead }) {
       api.get('/pages?all=true'),
       api.get('/templates'),
       api.get('/admin/how-it-works'),
-    ]).then(([u, l, c, s, p, st, pg, tmpl, stepsData]) => {
-      const allUsers = u.users || u || [];
-      setUsers(allUsers);
-      setLeads(Array.isArray(l) ? l : []);
+      api.get('/users?page=1&limit=1&role=pro'),
+    ]).then(([u, l, c, s, p, st, pg, tmpl, stepsData, prosResp]) => {
+      const userList = u.users || u || [];
+      const leadList = l.leads ?? (Array.isArray(l) ? l : []);
+      setUsers(userList);
+      setUsersTotal(u.total ?? userList.length);
+      setLeads(leadList);
+      setLeadsTotal(l.total ?? leadList.length);
       setCategories(Array.isArray(c) ? c : []);
       setServices(Array.isArray(s) ? s : []);
       setPlans(Array.isArray(p) ? p : []);
@@ -155,17 +196,42 @@ export default function AdminDashboard({ onShowLead }) {
       setTemplates(Array.isArray(tmpl) ? tmpl : []);
       setSteps(Array.isArray(stepsData) ? stepsData : []);
       setStats({
-        users: allUsers.length,
-        leads: (Array.isArray(l) ? l : []).length,
-        pros: allUsers.filter(x => x.role === 'pro').length,
+        users: u.total ?? userList.length,
+        leads: l.total ?? leadList.length,
+        pros: prosResp?.total ?? 0,
         services: (Array.isArray(s) ? s : []).length,
       });
     }).catch(console.error).finally(() => setLoading(false));
   }, []);
 
-  // Load steps when Steps tab is opened (ensures data even if initial load failed or returned non-array)
+  // Refetch users when page or role filter changes (users tab)
   useEffect(() => {
-    if (tab !== 'steps') return;
+    if (tab !== 'users') return;
+    const roleParam = userRoleFilter && userRoleFilter !== 'all' ? `&role=${userRoleFilter}` : '';
+    api.get(`/users?page=${usersPage}&limit=${usersLimit}${roleParam}`)
+      .then(u => {
+        const list = u.users || u || [];
+        setUsers(list);
+        setUsersTotal(u.total ?? list.length);
+      })
+      .catch(() => {});
+  }, [tab, usersPage, userRoleFilter]);
+
+  // Refetch leads when page changes (leads tab)
+  useEffect(() => {
+    if (tab !== 'leads') return;
+    api.get(`/leads?page=${leadsPage}&limit=${leadsLimit}`)
+      .then(l => {
+        const list = l.leads ?? (Array.isArray(l) ? l : []);
+        setLeads(list);
+        setLeadsTotal(l.total ?? list.length);
+      })
+      .catch(() => {});
+  }, [tab, leadsPage]);
+
+  // Load steps when Pages > Homepage Steps sub-tab is opened
+  useEffect(() => {
+    if (tab !== 'pages' || pagesSubTab !== 'steps') return;
     if (steps.length > 0) return; // already have data
     setStepsLoading(true);
     api.get('/admin/how-it-works')
@@ -175,7 +241,7 @@ export default function AdminDashboard({ onShowLead }) {
       })
       .catch(() => flash('Failed to load steps'))
       .finally(() => setStepsLoading(false));
-  }, [tab]);
+  }, [tab, pagesSubTab]);
 
   const loadSteps = () => {
     setStepsLoading(true);
@@ -335,10 +401,14 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'packages',   label: 'Packages',    icon: faCubes },
     { key: 'categories', label: 'Categories',  icon: faTag },
     { key: 'services',   label: 'Services',    icon: faLayerGroup },
-    { key: 'steps',      label: 'Homepage Steps', icon: faListOl },
     { key: 'pages',      label: 'Pages',       icon: faFileLines },
     { key: 'templates',  label: 'Templates',   icon: faBell },
     { key: 'settings',   label: 'Settings',    icon: faGear },
+  ];
+
+  const pagesSubTabs = [
+    { key: 'list',  label: 'CMS Pages',        icon: faFileLines },
+    { key: 'steps', label: 'Homepage Steps',    icon: faListOl },
   ];
 
   const filteredUsers = users.filter(u => {
@@ -418,7 +488,7 @@ export default function AdminDashboard({ onShowLead }) {
               <input type="text" placeholder="Search users..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
                 style={{ width: '100%', padding: '9px 14px 9px 34px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box' }} />
             </div>
-            <select value={userRoleFilter} onChange={e => setUserRoleFilter(e.target.value)}
+            <select value={userRoleFilter} onChange={e => { setUserRoleFilter(e.target.value); setUsersPage(1); }}
               style={{ padding: '9px 12px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: dm ? '#1e293b' : '#f8fafc', color: tp }}>
               <option value="all">All (Users &amp; Providers)</option>
               <option value="consumer">Consumers only</option>
@@ -426,7 +496,7 @@ export default function AdminDashboard({ onShowLead }) {
               <option value="admin">Admins only</option>
             </select>
             <Btn onClick={() => setEditUser({ email: '', password: '', role: 'consumer', firstName: '', lastName: '', phone: '' })}><FontAwesomeIcon icon={faPlus} />Add User</Btn>
-            <span style={{ fontSize: 13, color: ts }}>{filteredUsers.length} users</span>
+            <span style={{ fontSize: 13, color: ts }}>Showing {filteredUsers.length} of {usersTotal} users</span>
           </div>
 
           {editUser && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
@@ -506,22 +576,45 @@ export default function AdminDashboard({ onShowLead }) {
                 </Td>
               </tr>
             ))}
-          </Table></Card>
+          </Table>
+          <PaginationBar page={usersPage} total={usersTotal} limit={usersLimit} onPageChange={setUsersPage} dm={dm} />
+          </Card>
         </>}
 
         {/* ══════════ LEADS ══════════ */}
-        {tab === 'leads' && <Card dm={dm}><Table headers={['ID','Customer','Email','Service','ZIP','Status','Value','Created','']} dm={dm}>
-          {leads.map(l => (
+        {tab === 'leads' && <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Leads ({leadsTotal})</h3>
+            <Btn small variant="ghost" onClick={async () => {
+              setSaving(true);
+              try {
+                const r = await api.post('/admin/run-followups');
+                flash(`Follow-ups processed: ${r.processed || 0}`);
+              } catch { flash('Follow-up run failed'); }
+              setSaving(false);
+            }} disabled={saving}>Run Follow-ups</Btn>
+          </div>
+          <Card dm={dm}><Table headers={['ID','Customer','Service','ZIP','Status','Claimed By','Follow-up','Value','Created','']} dm={dm}>
+          {leads.map(l => {
+            const fuColors = { none: { bg: '#f1f5f9', color: '#64748b' }, pending: { bg: '#fef9c3', color: '#a16207' }, sent: { bg: '#dbeafe', color: '#2563eb' }, customer_yes: { bg: '#dcfce7', color: '#16a34a' }, customer_no: { bg: '#fee2e2', color: '#dc2626' }, stopped: { bg: '#f1f5f9', color: '#94a3b8' } };
+            const fu = fuColors[l.follow_up_status] || fuColors.none;
+            return (
             <tr key={l.id} onClick={() => onShowLead && onShowLead(l.id)} style={{ borderBottom: `1px solid ${border}`, cursor: 'pointer', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = dm ? '#1e293b' : '#f8fafc'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-              <Td dm={dm}>#{l.id}</Td><Td dm={dm} fw={600}>{l.customer_name||'—'}</Td><Td dm={dm}>{l.email}</Td>
+              <Td dm={dm}>#{l.id}</Td><Td dm={dm} fw={600}>{l.customer_name||'—'}</Td>
               <Td dm={dm}>{l.service_name}</Td><Td dm={dm}>{l.zip}</Td>
-              <Td dm={dm}><Badge color={l.status==='new'?'#2563eb':l.status==='completed'?'#16a34a':'#7c3aed'} bg={l.status==='new'?'#dbeafe':l.status==='completed'?'#dcfce7':'#f3e8ff'}>{l.status}</Badge></Td>
+              <Td dm={dm}><Badge color={l.status==='new'?'#2563eb':l.status==='completed'||l.status==='hired'?'#16a34a':l.status==='matched'?'#7c3aed':'#a16207'} bg={l.status==='new'?'#dbeafe':l.status==='completed'||l.status==='hired'?'#dcfce7':l.status==='matched'?'#f3e8ff':'#fef9c3'}>{l.status}</Badge></Td>
+              <Td dm={dm}>{l.claimed_by_business ? <span style={{ fontWeight: 600, fontSize: 12 }}>{l.claimed_by_business}</span> : <span style={{ color: ts, fontSize: 12 }}>—</span>}</Td>
+              <Td dm={dm}>{l.follow_up_status && l.follow_up_status !== 'none' ? <Badge color={fu.color} bg={fu.bg}>{l.follow_up_status.replace('_', ' ')}</Badge> : '—'}</Td>
               <Td dm={dm} fw={600}>${l.lead_value}</Td>
               <Td dm={dm}>{new Date(l.created_at).toLocaleDateString()}</Td>
               <Td dm={dm}><Btn small variant="ghost" onClick={e => { e.stopPropagation(); onShowLead && onShowLead(l.id); }}>View →</Btn></Td>
             </tr>
-          ))}
-        </Table></Card>}
+            );
+          })}
+        </Table>
+          <PaginationBar page={leadsPage} total={leadsTotal} limit={leadsLimit} onPageChange={setLeadsPage} dm={dm} />
+          </Card>
+        </>}
 
         {/* ══════════ PACKAGES ══════════ */}
         {tab === 'packages' && <>
@@ -670,8 +763,110 @@ export default function AdminDashboard({ onShowLead }) {
           </Table></Card>
         </>}
 
-        {/* ══════════ HOMEPAGE STEPS (HOW IT WORKS) ══════════ */}
-        {tab === 'steps' && <>
+        {/* ══════════ PAGES (CMS + Homepage Steps) ══════════ */}
+        {tab === 'pages' && <>
+          {/* Sub-menu: CMS Pages | Homepage Steps */}
+          <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: dm ? '#111827' : '#e2e8f0', borderRadius: 'var(--border-radius)', padding: 4, border: `1px solid ${border}` }}>
+            {pagesSubTabs.map(st => (
+              <button key={st.key} onClick={() => setPagesSubTab(st.key)} style={{
+                padding: '8px 16px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--border-radius)',
+                border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+                background: pagesSubTab === st.key ? 'var(--color-primary)' : 'transparent',
+                color: pagesSubTab === st.key ? '#fff' : ts,
+              }}><FontAwesomeIcon icon={st.icon} style={{ fontSize: 11 }} />{st.label}</button>
+            ))}
+          </div>
+
+          {pagesSubTab === 'list' && <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>CMS Pages ({pages.length})</h3>
+            <Btn onClick={() => setEditPage({ slug: '', title: '', content: '', metaTitle: '', metaDesc: '', status: 'draft', showInNav: true, navOrder: pages.length + 1, navGroup: 'company' })}><FontAwesomeIcon icon={faPlus} />New Page</Btn>
+          </div>
+
+          {editPage && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editPage.id ? `Edit: ${editPage.title}` : 'New Page'}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Title" value={editPage.title||''} onChange={v => setEditPage({...editPage, title: v})} dm={dm} />
+              <Input label="Slug" value={editPage.slug||''} onChange={v => setEditPage({...editPage, slug: v})} dm={dm} placeholder="e.g. about-us" />
+              <Input label="Meta Title" value={editPage.metaTitle||editPage.meta_title||''} onChange={v => setEditPage({...editPage, metaTitle: v})} dm={dm} />
+              <Input label="Meta Description" value={editPage.metaDesc||editPage.meta_desc||''} onChange={v => setEditPage({...editPage, metaDesc: v})} dm={dm} />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 4 }}>Status</label>
+                <select value={editPage.status||'draft'} onChange={e => setEditPage({...editPage, status: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="published">Published</option>
+                  <option value="draft">Draft</option>
+                  <option value="archived">Archived</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 4 }}>Nav Group</label>
+                <select value={editPage.navGroup||editPage.nav_group||'company'} onChange={e => setEditPage({...editPage, navGroup: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="company">Company</option>
+                  <option value="pros">For Pros</option>
+                  <option value="legal">Legal</option>
+                  <option value="support">Support</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <label style={{ fontSize: 13, color: tp, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={editPage.showInNav ?? editPage.show_in_nav ?? true} onChange={e => setEditPage({...editPage, showInNav: e.target.checked})} /> Show in footer nav
+              </label>
+              <Input label="Nav Order" value={editPage.navOrder||editPage.nav_order||''} onChange={v => setEditPage({...editPage, navOrder: parseInt(v)||0})} dm={dm} type="number" />
+            </div>
+
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 6 }}>Content</label>
+            <RichTextEditor value={editPage.content||''} onChange={v => setEditPage({...editPage, content: v})} darkMode={dm} minHeight={320} />
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <Btn onClick={async () => {
+                setSaving(true);
+                const payload = { slug: editPage.slug, title: editPage.title, content: editPage.content, metaTitle: editPage.metaTitle || editPage.meta_title, metaDesc: editPage.metaDesc || editPage.meta_desc, status: editPage.status, showInNav: editPage.showInNav ?? editPage.show_in_nav, navOrder: editPage.navOrder || editPage.nav_order || 0, navGroup: editPage.navGroup || editPage.nav_group };
+                if (editPage.id) {
+                  await api.put(`/pages/${editPage.id}`, payload);
+                  setPages(ps => ps.map(p => p.id === editPage.id ? { ...p, ...payload, show_in_nav: payload.showInNav, nav_order: payload.navOrder, nav_group: payload.navGroup, meta_title: payload.metaTitle, meta_desc: payload.metaDesc } : p));
+                } else {
+                  const r = await api.post('/pages', payload);
+                  setPages(ps => [...ps, { ...payload, id: r.id, show_in_nav: payload.showInNav, nav_order: payload.navOrder, nav_group: payload.navGroup, updated_at: new Date().toISOString() }]);
+                }
+                setEditPage(null); setSaving(false); flash('Page saved!');
+              }} disabled={saving || !editPage.title || !editPage.slug}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save Page'}</Btn>
+              <Btn variant="ghost" onClick={() => setEditPage(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+
+          <Card dm={dm}><Table headers={['','Title','Slug','Group','Status','Updated','Actions']} dm={dm}>
+            {pages.slice((pagesPage - 1) * pagesLimit, pagesPage * pagesLimit).map(p => (
+              <tr key={p.id} style={{ borderBottom: `1px solid ${border}` }}>
+                <Td dm={dm}><FontAwesomeIcon icon={faFileLines} style={{ color: p.status === 'published' ? '#22c55e' : p.status === 'draft' ? '#f59e0b' : '#94a3b8', fontSize: 14 }} /></Td>
+                <Td dm={dm} fw={600}>{p.title}</Td>
+                <Td dm={dm}>/{p.slug}</Td>
+                <Td dm={dm}><Badge color={p.nav_group==='legal'?'#dc2626':p.nav_group==='pros'?'#f59e0b':'#3b82f6'} bg={p.nav_group==='legal'?'#fee2e2':p.nav_group==='pros'?'#fef3c7':'#dbeafe'}>{p.nav_group}</Badge></Td>
+                <Td dm={dm}><Badge color={p.status==='published'?'#16a34a':p.status==='draft'?'#a16207':'#6b7280'} bg={p.status==='published'?'#dcfce7':p.status==='draft'?'#fef9c3':'#f1f5f9'}>{p.status}</Badge></Td>
+                <Td dm={dm}>{p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}</Td>
+                <Td dm={dm}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <Btn small onClick={async () => {
+                      const full = await api.get(`/pages/${p.slug}`);
+                      setEditPage({ ...full, metaTitle: full.meta_title, metaDesc: full.meta_desc, navGroup: full.nav_group, navOrder: full.nav_order, showInNav: !!full.show_in_nav });
+                    }}><FontAwesomeIcon icon={faPen} /></Btn>
+                    <Btn small variant="ghost" onClick={() => window.open(`/#page/${p.slug}`, '_blank')}><FontAwesomeIcon icon={faEye} /></Btn>
+                    <Btn small variant="danger" onClick={async () => {
+                      if (!confirm(`Delete "${p.title}"?`)) return;
+                      await api.del(`/pages/${p.id}`);
+                      setPages(ps => ps.filter(x => x.id !== p.id));
+                      flash('Page deleted');
+                    }}><FontAwesomeIcon icon={faTrash} /></Btn>
+                  </div>
+                </Td>
+              </tr>
+            ))}
+          </Table>
+          <PaginationBar page={pagesPage} total={pages.length} limit={pagesLimit} onPageChange={setPagesPage} dm={dm} />
+          </Card>
+          </>}
+
+          {pagesSubTab === 'steps' && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <div>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Homepage “How it works” steps</h3>
@@ -733,94 +928,7 @@ export default function AdminDashboard({ onShowLead }) {
               </div>
             </Card>
           </div>
-        </>}
-
-        {/* ══════════ PAGES (CMS) ══════════ */}
-        {tab === 'pages' && <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>CMS Pages ({pages.length})</h3>
-            <Btn onClick={() => setEditPage({ slug: '', title: '', content: '', metaTitle: '', metaDesc: '', status: 'draft', showInNav: true, navOrder: pages.length + 1, navGroup: 'company' })}><FontAwesomeIcon icon={faPlus} />New Page</Btn>
-          </div>
-
-          {editPage && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editPage.id ? `Edit: ${editPage.title}` : 'New Page'}</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <Input label="Title" value={editPage.title||''} onChange={v => setEditPage({...editPage, title: v})} dm={dm} />
-              <Input label="Slug" value={editPage.slug||''} onChange={v => setEditPage({...editPage, slug: v})} dm={dm} placeholder="e.g. about-us" />
-              <Input label="Meta Title" value={editPage.metaTitle||editPage.meta_title||''} onChange={v => setEditPage({...editPage, metaTitle: v})} dm={dm} />
-              <Input label="Meta Description" value={editPage.metaDesc||editPage.meta_desc||''} onChange={v => setEditPage({...editPage, metaDesc: v})} dm={dm} />
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 4 }}>Status</label>
-                <select value={editPage.status||'draft'} onChange={e => setEditPage({...editPage, status: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                  <option value="published">Published</option>
-                  <option value="draft">Draft</option>
-                  <option value="archived">Archived</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 4 }}>Nav Group</label>
-                <select value={editPage.navGroup||editPage.nav_group||'company'} onChange={e => setEditPage({...editPage, navGroup: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                  <option value="company">Company</option>
-                  <option value="pros">For Pros</option>
-                  <option value="legal">Legal</option>
-                  <option value="support">Support</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
-              <label style={{ fontSize: 13, color: tp, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input type="checkbox" checked={editPage.showInNav ?? editPage.show_in_nav ?? true} onChange={e => setEditPage({...editPage, showInNav: e.target.checked})} /> Show in footer nav
-              </label>
-              <Input label="Nav Order" value={editPage.navOrder||editPage.nav_order||''} onChange={v => setEditPage({...editPage, navOrder: parseInt(v)||0})} dm={dm} type="number" />
-            </div>
-
-            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: dm ? '#94a3b8' : '#64748b', marginBottom: 6 }}>Content</label>
-            <RichTextEditor value={editPage.content||''} onChange={v => setEditPage({...editPage, content: v})} darkMode={dm} minHeight={320} />
-
-            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
-              <Btn onClick={async () => {
-                setSaving(true);
-                const payload = { slug: editPage.slug, title: editPage.title, content: editPage.content, metaTitle: editPage.metaTitle || editPage.meta_title, metaDesc: editPage.metaDesc || editPage.meta_desc, status: editPage.status, showInNav: editPage.showInNav ?? editPage.show_in_nav, navOrder: editPage.navOrder || editPage.nav_order || 0, navGroup: editPage.navGroup || editPage.nav_group };
-                if (editPage.id) {
-                  await api.put(`/pages/${editPage.id}`, payload);
-                  setPages(ps => ps.map(p => p.id === editPage.id ? { ...p, ...payload, show_in_nav: payload.showInNav, nav_order: payload.navOrder, nav_group: payload.navGroup, meta_title: payload.metaTitle, meta_desc: payload.metaDesc } : p));
-                } else {
-                  const r = await api.post('/pages', payload);
-                  setPages(ps => [...ps, { ...payload, id: r.id, show_in_nav: payload.showInNav, nav_order: payload.navOrder, nav_group: payload.navGroup, updated_at: new Date().toISOString() }]);
-                }
-                setEditPage(null); setSaving(false); flash('Page saved!');
-              }} disabled={saving || !editPage.title || !editPage.slug}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save Page'}</Btn>
-              <Btn variant="ghost" onClick={() => setEditPage(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
-            </div>
-          </Card>}
-
-          <Card dm={dm}><Table headers={['','Title','Slug','Group','Status','Updated','Actions']} dm={dm}>
-            {pages.map(p => (
-              <tr key={p.id} style={{ borderBottom: `1px solid ${border}` }}>
-                <Td dm={dm}><FontAwesomeIcon icon={faFileLines} style={{ color: p.status === 'published' ? '#22c55e' : p.status === 'draft' ? '#f59e0b' : '#94a3b8', fontSize: 14 }} /></Td>
-                <Td dm={dm} fw={600}>{p.title}</Td>
-                <Td dm={dm}>/{p.slug}</Td>
-                <Td dm={dm}><Badge color={p.nav_group==='legal'?'#dc2626':p.nav_group==='pros'?'#f59e0b':'#3b82f6'} bg={p.nav_group==='legal'?'#fee2e2':p.nav_group==='pros'?'#fef3c7':'#dbeafe'}>{p.nav_group}</Badge></Td>
-                <Td dm={dm}><Badge color={p.status==='published'?'#16a34a':p.status==='draft'?'#a16207':'#6b7280'} bg={p.status==='published'?'#dcfce7':p.status==='draft'?'#fef9c3':'#f1f5f9'}>{p.status}</Badge></Td>
-                <Td dm={dm}>{p.updated_at ? new Date(p.updated_at).toLocaleDateString() : '—'}</Td>
-                <Td dm={dm}>
-                  <div style={{ display: 'flex', gap: 4 }}>
-                    <Btn small onClick={async () => {
-                      const full = await api.get(`/pages/${p.slug}`);
-                      setEditPage({ ...full, metaTitle: full.meta_title, metaDesc: full.meta_desc, navGroup: full.nav_group, navOrder: full.nav_order, showInNav: !!full.show_in_nav });
-                    }}><FontAwesomeIcon icon={faPen} /></Btn>
-                    <Btn small variant="ghost" onClick={() => window.open(`/#page/${p.slug}`, '_blank')}><FontAwesomeIcon icon={faEye} /></Btn>
-                    <Btn small variant="danger" onClick={async () => {
-                      if (!confirm(`Delete "${p.title}"?`)) return;
-                      await api.del(`/pages/${p.id}`);
-                      setPages(ps => ps.filter(x => x.id !== p.id));
-                      flash('Page deleted');
-                    }}><FontAwesomeIcon icon={faTrash} /></Btn>
-                  </div>
-                </Td>
-              </tr>
-            ))}
-          </Table></Card>
+          </>}
         </>}
 
         {/* ══════════ TEMPLATES ══════════ */}

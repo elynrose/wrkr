@@ -4,6 +4,7 @@ import {
   faUser, faEnvelope, faPhone, faSave, faSpinner, faCheckCircle, faKey,
   faBuilding, faGlobe, faIdCard, faBriefcase, faClock, faListCheck,
   faCreditCard, faArrowUpRightFromSquare, faCoins, faBan, faRotateRight,
+  faChevronLeft, faChevronRight,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -27,6 +28,9 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [myLeads, setMyLeads] = useState([]);
+  const [myLeadsTotal, setMyLeadsTotal] = useState(0);
+  const [myLeadsPage, setMyLeadsPage] = useState(1);
+  const myLeadsLimit = 10;
   const [adminStats, setAdminStats] = useState(null);
   const [sub, setSub] = useState(null);
   const [plans, setPlans] = useState([]);
@@ -76,23 +80,28 @@ export default function ProfilePage() {
       getCurrentSubscription().then(setSub).catch(() => {});
       getPlans().then(d => setPlans(Array.isArray(d) ? d : [])).catch(() => {});
     }
-    if (user.role === 'consumer') {
-      getMyLeads().then(setMyLeads).catch(() => setMyLeads([]));
-    }
     if (user.role === 'admin') {
       Promise.all([
-        authGet('/users?limit=1'),
-        authGet('/leads?limit=100'),
+        authGet('/users?page=1&limit=1'),
+        authGet('/leads?page=1&limit=1'),
         authGet('/services?all=true'),
       ]).then(([usersRes, leadsRes, servicesRes]) => {
         setAdminStats({
-          users: usersRes.total || (usersRes.users || []).length || 0,
-          leads: Array.isArray(leadsRes) ? leadsRes.length : 0,
+          users: usersRes.total ?? (usersRes.users || []).length ?? 0,
+          leads: leadsRes.total ?? (leadsRes.leads || []).length ?? 0,
           services: Array.isArray(servicesRes) ? servicesRes.length : 0,
         });
       }).catch(() => setAdminStats({ users: 0, leads: 0, services: 0 }));
     }
   }, [user]);
+
+  useEffect(() => {
+    if (!user || user.role !== 'consumer') return;
+    getMyLeads(myLeadsPage, myLeadsLimit).then(d => {
+      setMyLeads(d.leads ?? []);
+      setMyLeadsTotal(d.total ?? 0);
+    }).catch(() => { setMyLeads([]); setMyLeadsTotal(0); });
+  }, [user, myLeadsPage]);
 
   const memberSince = useMemo(() => {
     if (!user?.createdAt) return '-';
@@ -103,7 +112,7 @@ export default function ProfilePage() {
     background: darkMode ? '#111827' : '#fff',
     border: `1px solid ${darkMode ? '#1f2937' : '#e5e7eb'}`,
     borderRadius: 'var(--border-radius)',
-    padding: 20,
+    padding: '24px 28px',
     boxShadow: darkMode ? 'none' : '0 1px 3px rgba(0,0,0,0.06)',
   };
 
@@ -175,12 +184,12 @@ export default function ProfilePage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: darkMode ? '#0b1220' : '#f3f6fb', padding: '28px 16px' }}>
-      <div style={{ maxWidth: 1050, margin: '0 auto', display: 'grid', gap: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+    <div style={{ minHeight: '100vh', background: darkMode ? '#0b1220' : '#f3f6fb', padding: '32px 20px 48px' }}>
+      <div style={{ maxWidth: 1050, margin: '0 auto', display: 'grid', gap: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 26, color: darkMode ? '#f3f4f6' : '#111827' }}>My Profile</h1>
-            <p style={{ margin: '6px 0 0', fontSize: 14, color: darkMode ? '#9ca3af' : '#6b7280' }}>
+            <p style={{ margin: '8px 0 0', fontSize: 14, color: darkMode ? '#9ca3af' : '#6b7280' }}>
               Role: <strong style={{ textTransform: 'capitalize' }}>{user.role}</strong> · Member since {memberSince}
             </p>
           </div>
@@ -192,8 +201,8 @@ export default function ProfilePage() {
         </div>
 
         <div style={panelStyle}>
-          <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>Account Information</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+          <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>Account Information</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginBottom: 20 }}>
             <Field label="First Name" icon={faUser} style={labelStyle} input={inputStyle} value={account.firstName}
               onChange={(v) => setAccount(s => ({ ...s, firstName: v }))} />
             <Field label="Last Name" icon={faUser} style={labelStyle} input={inputStyle} value={account.lastName}
@@ -204,54 +213,74 @@ export default function ProfilePage() {
               onChange={(v) => setAccount(s => ({ ...s, avatarUrl: v }))} />
             <Field label="Email" icon={faEnvelope} style={labelStyle} input={{ ...inputStyle, opacity: 0.7 }} value={user.email} disabled />
           </div>
-          <button onClick={saveAccount} disabled={saving} style={btnPrimary}>
+          <button onClick={saveAccount} disabled={saving} style={{ ...btnPrimary, marginTop: 4 }}>
             <FontAwesomeIcon icon={saving ? faSpinner : faSave} spin={saving} /> Save Account
           </button>
         </div>
 
         <div style={panelStyle}>
-          <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>Security</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+          <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>Security</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginBottom: 20 }}>
             <Field label="Current Password" icon={faKey} style={labelStyle} input={inputStyle} type="password"
               value={pw.current} onChange={(v) => setPw(s => ({ ...s, current: v }))} />
             <Field label="New Password" icon={faKey} style={labelStyle} input={inputStyle} type="password"
               value={pw.next} onChange={(v) => setPw(s => ({ ...s, next: v }))} />
           </div>
-          <button onClick={savePassword} disabled={saving} style={btnGhost}>
+          <button onClick={savePassword} disabled={saving} style={{ ...btnGhost, marginTop: 4 }}>
             <FontAwesomeIcon icon={saving ? faSpinner : faKey} spin={saving} /> Update Password
           </button>
         </div>
 
         {user.role === 'consumer' && (
           <div style={panelStyle}>
-            <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>
+            <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>
               <FontAwesomeIcon icon={faListCheck} style={{ marginRight: 8 }} />
               My Service Requests
             </h3>
             {myLeads.length === 0 ? (
-              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>No requests submitted yet.</p>
+              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280', margin: 0 }}>No requests submitted yet.</p>
             ) : (
-              <div style={{ display: 'grid', gap: 10 }}>
-                {myLeads.slice(0, 12).map((lead) => (
-                  <div key={lead.id} style={{ border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`, borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontWeight: 700, color: darkMode ? '#f3f4f6' : '#111827' }}>{lead.service_name}</div>
-                    <div style={{ fontSize: 13, color: darkMode ? '#9ca3af' : '#6b7280' }}>
-                      #{lead.id} · {lead.city_name || lead.zip} · Status: {lead.status}
+              <>
+                <div style={{ display: 'grid', gap: 12 }}>
+                  {myLeads.map((lead) => (
+                    <div key={lead.id} style={{ border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`, borderRadius: 8, padding: 14 }}>
+                      <div style={{ fontWeight: 700, color: darkMode ? '#f3f4f6' : '#111827' }}>{lead.service_name}</div>
+                      <div style={{ fontSize: 13, color: darkMode ? '#9ca3af' : '#6b7280' }}>
+                        #{lead.id} · {lead.city_name || lead.zip} · Status: {lead.status}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {myLeadsTotal > myLeadsLimit && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginTop: 16, paddingTop: 16, borderTop: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}` }}>
+                    <span style={{ fontSize: 12, color: darkMode ? '#9ca3af' : '#6b7280' }}>
+                      Showing {(myLeadsPage - 1) * myLeadsLimit + 1}–{Math.min(myLeadsPage * myLeadsLimit, myLeadsTotal)} of {myLeadsTotal}
+                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <button onClick={() => setMyLeadsPage(p => Math.max(1, p - 1))} disabled={myLeadsPage <= 1}
+                        style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`, borderRadius: 8, background: darkMode ? '#1f2937' : '#fff', color: darkMode ? '#f3f4f6' : '#111827', cursor: myLeadsPage <= 1 ? 'not-allowed' : 'pointer', opacity: myLeadsPage <= 1 ? 0.5 : 1 }}>
+                        <FontAwesomeIcon icon={faChevronLeft} /> Prev
+                      </button>
+                      <span style={{ fontSize: 12, color: darkMode ? '#9ca3af' : '#6b7280' }}>Page {myLeadsPage} of {Math.ceil(myLeadsTotal / myLeadsLimit)}</span>
+                      <button onClick={() => setMyLeadsPage(p => p + 1)} disabled={myLeadsPage * myLeadsLimit >= myLeadsTotal}
+                        style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}`, borderRadius: 8, background: darkMode ? '#1f2937' : '#fff', color: darkMode ? '#f3f4f6' : '#111827', cursor: myLeadsPage * myLeadsLimit >= myLeadsTotal ? 'not-allowed' : 'pointer', opacity: myLeadsPage * myLeadsLimit >= myLeadsTotal ? 0.5 : 1 }}>
+                        Next <FontAwesomeIcon icon={faChevronRight} />
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
+                )}
+              </>
             )}
           </div>
         )}
 
         {user.role === 'pro' && (
           <div style={panelStyle}>
-            <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>
+            <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>
               <FontAwesomeIcon icon={faBuilding} style={{ marginRight: 8 }} />
               Business Profile
             </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16, marginBottom: 16 }}>
               <Field label="Business Name" icon={faBuilding} style={labelStyle} input={inputStyle} value={proForm.businessName}
                 onChange={(v) => setProForm(s => ({ ...s, businessName: v }))} />
               <Field label="Business Phone" icon={faPhone} style={labelStyle} input={inputStyle} value={proForm.phone}
@@ -265,9 +294,9 @@ export default function ProfilePage() {
               <Field label="Insurance Info" icon={faBriefcase} style={labelStyle} input={inputStyle} value={proForm.insuranceInfo}
                 onChange={(v) => setProForm(s => ({ ...s, insuranceInfo: v }))} />
             </div>
-            <label style={labelStyle}>Description</label>
+            <label style={{ ...labelStyle, marginTop: 4 }}>Description</label>
             <textarea value={proForm.description} onChange={(e) => setProForm(s => ({ ...s, description: e.target.value }))}
-              style={{ ...inputStyle, minHeight: 100, marginBottom: 12 }} />
+              style={{ ...inputStyle, minHeight: 100, marginTop: 6, marginBottom: 20 }} />
             <button onClick={saveProProfile} disabled={saving} style={btnPrimary}>
               <FontAwesomeIcon icon={saving ? faSpinner : faSave} spin={saving} /> Save Business Profile
             </button>
@@ -276,24 +305,24 @@ export default function ProfilePage() {
 
         {user.role === 'pro' && (
           <div style={panelStyle}>
-            <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>
+            <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>
               <FontAwesomeIcon icon={faCreditCard} style={{ marginRight: 8 }} />
               Subscription & Billing
             </h3>
             {sub ? (
               <div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 20 }}>
                   <Stat label="Current Plan" value={sub.planName || sub.plan || 'Free'} darkMode={darkMode} />
                   <Stat label="Status" value={sub.status || 'none'} darkMode={darkMode} />
                   <Stat label="Lead Credits" value={sub.leadCredits ?? 0} darkMode={darkMode} />
                   <Stat label="Monthly Credits" value={sub.planCredits || 0} darkMode={darkMode} />
                 </div>
                 {sub.stripe?.cancelAtPeriodEnd && (
-                  <div style={{ background: darkMode ? '#422006' : '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 12, color: darkMode ? '#fbbf24' : '#92400e' }}>
+                  <div style={{ background: darkMode ? '#422006' : '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', fontSize: 13, marginBottom: 16, color: darkMode ? '#fbbf24' : '#92400e' }}>
                     Your subscription will cancel at the end of the current billing period.
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                   {sub.plan !== 'free' && sub.status === 'active' && !sub.stripe?.cancelAtPeriodEnd && (
                     <button onClick={async () => {
                       setSubLoading(true);
@@ -333,15 +362,15 @@ export default function ProfilePage() {
                   </button>
                 </div>
                 {plans.length > 0 && (sub.plan === 'free' || sub.plan === 'starter') && (
-                  <div style={{ marginTop: 20 }}>
-                    <h4 style={{ fontSize: 14, fontWeight: 700, color: darkMode ? '#f3f4f6' : '#111827', marginBottom: 10 }}>
+                  <div style={{ marginTop: 24, paddingTop: 20, borderTop: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}` }}>
+                    <h4 style={{ fontSize: 14, fontWeight: 700, color: darkMode ? '#f3f4f6' : '#111827', marginBottom: 12 }}>
                       <FontAwesomeIcon icon={faCoins} style={{ marginRight: 6 }} /> Upgrade Your Plan
                     </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 10 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 14 }}>
                       {plans.filter(p => p.price_monthly > 0 && p.slug !== sub.plan).map(p => (
                         <div key={p.id} style={{
                           border: `1px solid ${p.is_popular ? 'var(--color-primary)' : (darkMode ? '#374151' : '#e5e7eb')}`,
-                          borderRadius: 8, padding: 14,
+                          borderRadius: 8, padding: 16,
                           background: p.is_popular ? (darkMode ? '#1e3a5f' : '#eff6ff') : 'transparent',
                         }}>
                           <div style={{ fontWeight: 700, color: darkMode ? '#f3f4f6' : '#111827' }}>{p.name}</div>
@@ -369,18 +398,18 @@ export default function ProfilePage() {
                 )}
               </div>
             ) : (
-              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>Loading subscription info...</p>
+              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280', margin: 0 }}>Loading subscription info...</p>
             )}
           </div>
         )}
 
         {user.role === 'admin' && (
           <div style={panelStyle}>
-            <h3 style={{ marginTop: 0, color: darkMode ? '#f3f4f6' : '#111827' }}>Admin Overview</h3>
+            <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>Admin Overview</h3>
             {!adminStats ? (
-              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280' }}>Loading stats...</p>
+              <p style={{ color: darkMode ? '#9ca3af' : '#6b7280', margin: 0 }}>Loading stats...</p>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 16 }}>
                 <Stat label="Total Users" value={adminStats.users} darkMode={darkMode} />
                 <Stat label="Total Leads" value={adminStats.leads} darkMode={darkMode} />
                 <Stat label="Total Services" value={adminStats.services} darkMode={darkMode} />
@@ -395,7 +424,7 @@ export default function ProfilePage() {
 
 function Field({ label, icon, style, input, value, onChange, type = 'text', disabled = false }) {
   return (
-    <div>
+    <div style={{ marginBottom: 2 }}>
       <label style={style}>
         <FontAwesomeIcon icon={icon} style={{ marginRight: 6 }} />
         {label}

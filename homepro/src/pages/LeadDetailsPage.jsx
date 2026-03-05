@@ -220,7 +220,7 @@ export default function LeadDetailsPage({ leadId, onBack }) {
     { key: 'notes',    label: `Notes (${notes.length})` },
     { key: 'activity', label: `Activity (${activity.length})` },
     { key: 'matches',  label: `Matches (${matches.length})` },
-    { key: 'claims',   label: `Claims (${claims.length})` },
+    { key: 'claims',   label: claims.length ? `Claimed (${claims[0]?.business_name || ''})` : 'Claim' },
   ];
 
   return (
@@ -334,8 +334,26 @@ export default function LeadDetailsPage({ leadId, onBack }) {
                   <Field label="Budget" value={lead.budget_min || lead.budget_max ? `$${lead.budget_min || '?'} – $${lead.budget_max || '?'}` : '—'} icon={faDollarSign} dm={dm} />
                   <Field label="Lead Value" value={`$${lead.lead_value}`} icon={faDollarSign} dm={dm} />
                   <Field label="Source" value={lead.source || 'website'} dm={dm} />
-                  <Field label="Claims" value={`${lead.claim_count} / ${lead.max_claims}`} dm={dm} />
+                  <Field label="Claimed" value={lead.is_claimed ? 'Yes' : 'No'} dm={dm} />
                 </div>
+                {lead.claimed_by_business && (
+                  <div style={{ marginTop: 14, padding: 14, borderRadius: 8, background: dm ? '#064e3b' : '#ecfdf5', border: `1px solid ${dm ? '#065f46' : '#a7f3d0'}` }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: dm ? '#6ee7b7' : '#047857', display: 'block', marginBottom: 4 }}>
+                      <FontAwesomeIcon icon={faBriefcase} style={{ marginRight: 4 }} />Claimed By
+                    </label>
+                    <p style={{ fontSize: 14, fontWeight: 700, color: dm ? '#a7f3d0' : '#065f46', margin: 0 }}>{lead.claimed_by_business}</p>
+                  </div>
+                )}
+                {lead.follow_up_status && lead.follow_up_status !== 'none' && (
+                  <div style={{ marginTop: 10, padding: 14, borderRadius: 8, background: dm ? '#1e293b' : '#fefce8', border: `1px solid ${dm ? '#334155' : '#fde68a'}` }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: dm ? '#fde68a' : '#a16207', display: 'block', marginBottom: 4 }}>Follow-up Status</label>
+                    <p style={{ fontSize: 13, color: tp, margin: 0 }}>
+                      <strong>{lead.follow_up_status.replace(/_/g, ' ')}</strong>
+                      {lead.follow_up_count > 0 && ` · ${lead.follow_up_count} sent`}
+                      {lead.sms_opt_out && ' · Customer opted out'}
+                    </p>
+                  </div>
+                )}
                 {lead.description && (
                   <div style={{ marginTop: 14, padding: 14, borderRadius: 8, background: dm ? '#1e293b' : '#f8fafc', border: `1px solid ${border}` }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: ts, display: 'block', marginBottom: 4 }}>Description</label>

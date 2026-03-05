@@ -101,7 +101,7 @@ export default function ServiceCategories({ services = [], onConsumerSignup, loa
           className="hp-scroll-track"
           style={{
             display: 'flex', gap: 16, overflowX: 'auto', scrollSnapType: 'x mandatory',
-            paddingBottom: 8, scrollbarWidth: 'none', msOverflowStyle: 'none',
+            paddingTop: 16, paddingBottom: 16, scrollbarWidth: 'none', msOverflowStyle: 'none',
             WebkitOverflowScrolling: 'touch',
           }}
         >

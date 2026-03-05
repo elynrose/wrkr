@@ -81,6 +81,9 @@ export default function ProDashboard({ onProSignup }) {
   const [history, setHistory] = useState([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [historyPage, setHistoryPage] = useState(1);
+  const [leadsPage, setLeadsPage] = useState(1);
+  const [leadsTotal, setLeadsTotal] = useState(0);
+  const leadsLimit = 20;
   const [purchasing, setPurchasing] = useState(false);
   const [creditMsg, setCreditMsg] = useState('');
 
@@ -93,13 +96,17 @@ export default function ProDashboard({ onProSignup }) {
   const flash = (m) => { setCreditMsg(m); setTimeout(() => setCreditMsg(''), 4000); };
 
   useEffect(() => {
-    api.get('/matching/my-leads')
-      .then(d => setLeads(Array.isArray(d) ? d : []))
+    api.get(`/matching/my-leads?page=${leadsPage}&limit=${leadsLimit}`)
+      .then(d => {
+        const list = d.leads ?? (Array.isArray(d) ? d : []);
+        setLeads(list);
+        setLeadsTotal(d.total ?? list.length);
+      })
       .catch(() => setLeads([]))
       .finally(() => setLoading(false));
     api.get('/credits/balance').then(setCreditData).catch(() => {});
     api.get('/credits/bundles').then(d => setBundles(Array.isArray(d) ? d : [])).catch(() => {});
-  }, []);
+  }, [leadsPage]);
 
   useEffect(() => {
     if (tab === 'credits') fetchHistory();
@@ -272,13 +279,13 @@ export default function ProDashboard({ onProSignup }) {
               </p>
             </div>
           ) : (
+            <>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {filtered.map(lead => {
                 const ms = MATCH_STATUS[lead.match_status] || MATCH_STATUS.pending;
                 const isExpanded = expandedLead === lead.match_id;
                 const remaining = timeLeft(lead.expires_at);
                 const isUrgent = lead.urgency === 'within_24h';
-                const spotsLeft = Math.max(0, (lead.max_claims || 3) - (lead.claim_count || 0));
                 const showContact = lead.match_status === 'accepted';
 
                 return (
@@ -322,9 +329,9 @@ export default function ProDashboard({ onProSignup }) {
                             <FontAwesomeIcon icon={faClock} style={{ fontSize: 10 }} />{remaining}
                           </span>
                         )}
-                        {ms.actionable && spotsLeft <= 2 && (
+                        {ms.actionable && (
                           <span style={{ fontSize: 11, fontWeight: 600, color: '#dc2626', background: '#fee2e2', padding: '3px 10px', borderRadius: 10 }}>
-                            {spotsLeft} spot{spotsLeft !== 1 ? 's' : ''} left
+                            Exclusive — first to claim wins
                           </span>
                         )}
                         <span style={{ fontSize: 11, fontWeight: 700, color: ms.color, background: ms.bg, padding: '3px 10px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -335,10 +342,10 @@ export default function ProDashboard({ onProSignup }) {
                       {/* Actions (only for actionable) */}
                       {ms.actionable && (
                         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-                          <button onClick={() => claimLead(lead.claim_token)} disabled={claiming === lead.claim_token || spotsLeft === 0}
-                            style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 'var(--border-radius)', background: spotsLeft === 0 ? '#94a3b8' : '#22c55e', color: '#fff', cursor: spotsLeft === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: claiming === lead.claim_token ? 0.6 : 1 }}>
+                          <button onClick={() => claimLead(lead.claim_token)} disabled={claiming === lead.claim_token}
+                            style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, border: 'none', borderRadius: 'var(--border-radius)', background: '#22c55e', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, opacity: claiming === lead.claim_token ? 0.6 : 1 }}>
                             {claiming === lead.claim_token ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faCheckCircle} />}
-                            {spotsLeft === 0 ? 'Full' : 'Claim'}
+                            Claim
                           </button>
                           <button onClick={() => declineLead(lead.claim_token)}
                             style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, border: `1px solid ${border}`, borderRadius: 'var(--border-radius)', background: 'transparent', color: ts, cursor: 'pointer' }}>
@@ -410,6 +417,23 @@ export default function ProDashboard({ onProSignup }) {
                 );
               })}
             </div>
+            {leadsTotal > leadsLimit && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, padding: '12px 0', marginTop: 8, borderTop: `1px solid ${border}` }}>
+                <span style={{ fontSize: 12, color: ts }}>Showing {(leadsPage - 1) * leadsLimit + 1}–{Math.min(leadsPage * leadsLimit, leadsTotal)} of {leadsTotal}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button onClick={() => setLeadsPage(p => Math.max(1, p - 1))} disabled={leadsPage <= 1}
+                    style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${border}`, borderRadius: 6, background: cardBg, color: tp, cursor: leadsPage <= 1 ? 'not-allowed' : 'pointer', opacity: leadsPage <= 1 ? 0.4 : 1 }}>
+                    <FontAwesomeIcon icon={faChevronLeft} /> Prev
+                  </button>
+                  <span style={{ fontSize: 12, color: ts }}>Page {leadsPage} of {Math.ceil(leadsTotal / leadsLimit)}</span>
+                  <button onClick={() => setLeadsPage(p => p + 1)} disabled={leadsPage * leadsLimit >= leadsTotal}
+                    style={{ padding: '6px 12px', fontSize: 12, border: `1px solid ${border}`, borderRadius: 6, background: cardBg, color: tp, cursor: leadsPage * leadsLimit >= leadsTotal ? 'not-allowed' : 'pointer', opacity: leadsPage * leadsLimit >= leadsTotal ? 0.4 : 1 }}>
+                    Next <FontAwesomeIcon icon={faChevronRight} />
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </>}
 

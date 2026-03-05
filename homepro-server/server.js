@@ -114,6 +114,42 @@ app.use('/api/pages',           require('./routes/pages'));
 app.use('/api/matching',        require('./routes/matching'));
 app.use('/api/credits',         require('./routes/credits'));
 
+// ── Twilio inbound SMS webhook ──
+const { handleInboundSMS } = require('./services/followUp');
+
+app.post('/api/sms/inbound', express.urlencoded({ extended: false }), async (req, res) => {
+  try {
+    const from = req.body.From || '';
+    const body = req.body.Body || '';
+    const sid  = req.body.MessageSid || '';
+
+    console.log(`[SMS IN] From: ${from} Body: ${body}`);
+
+    const result = await handleInboundSMS(from, body, sid);
+
+    // Reply with TwiML
+    const reply = result.reply || '';
+    res.type('text/xml').send(
+      `<?xml version="1.0" encoding="UTF-8"?><Response>${reply ? `<Message>${reply}</Message>` : ''}</Response>`
+    );
+  } catch (err) {
+    console.error('[SMS IN] Error:', err);
+    res.type('text/xml').send('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+  }
+});
+
+// Admin: manually trigger follow-ups
+app.post('/api/admin/run-followups', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { processFollowUps } = require('./services/followUp');
+    const result = await processFollowUps();
+    res.json(result);
+  } catch (err) {
+    console.error('Follow-up run error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({
@@ -140,9 +176,22 @@ app.use((err, req, res, _next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// ── Follow-up timer ──
+const { processFollowUps } = require('./services/followUp');
+const FOLLOWUP_INTERVAL = 15 * 60 * 1000; // check every 15 min
+setInterval(async () => {
+  try {
+    const result = await processFollowUps();
+    if (result.processed > 0) console.log(`[FOLLOWUP CRON] Sent ${result.processed} follow-ups`);
+  } catch (err) {
+    console.error('[FOLLOWUP CRON] Error:', err.message);
+  }
+}, FOLLOWUP_INTERVAL);
+
 app.listen(PORT, () => {
   console.log(`✅ HomePro API running at http://localhost:${PORT}`);
   console.log(`   Routes: auth, users, categories, services, leads, cities, pros, payments, subscriptions, reviews, notifications, messages`);
+  console.log(`   Follow-up checker runs every ${FOLLOWUP_INTERVAL / 60000} min`);
   if (!process.env.STRIPE_SECRET_KEY) {
     console.log(`   ⚠️  Stripe not configured — set STRIPE_SECRET_KEY in .env for payments`);
   }
