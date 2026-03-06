@@ -5,13 +5,31 @@ CREATE DATABASE IF NOT EXISTS homepro;
 USE homepro;
 
 -- ═══════════════════════════════════════════════════════════
+-- TENANTS (multi-tenant support)
+-- ═══════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS tenants (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  name           VARCHAR(200)  NOT NULL,
+  slug           VARCHAR(100)  UNIQUE NOT NULL,
+  custom_domain  VARCHAR(300)  UNIQUE NULL,
+  status         ENUM('active','suspended','pending') DEFAULT 'active',
+  plan           ENUM('starter','pro','enterprise') DEFAULT 'starter',
+  owner_user_id  INT NULL,
+  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Default tenant (id=1) — all existing data belongs here
+INSERT IGNORE INTO tenants (id, name, slug, custom_domain, status, plan) VALUES (1, 'Default', 'default', NULL, 'active', 'starter');
+
+-- ═══════════════════════════════════════════════════════════
 -- USERS (unified auth: consumer, pro, admin)
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS users (
   id              INT AUTO_INCREMENT PRIMARY KEY,
-  email           VARCHAR(200)  UNIQUE NOT NULL,
+  tenant_id       INT           NOT NULL DEFAULT 1,
+  email           VARCHAR(200)  NOT NULL,
   password_hash   VARCHAR(255)  NOT NULL,
-  role            ENUM('consumer','pro','admin') NOT NULL DEFAULT 'consumer',
+  role            ENUM('consumer','pro','admin','superadmin') NOT NULL DEFAULT 'consumer',
   first_name      VARCHAR(100),
   last_name       VARCHAR(100),
   phone           VARCHAR(30),
@@ -20,7 +38,9 @@ CREATE TABLE IF NOT EXISTS users (
   is_active       BOOLEAN       DEFAULT TRUE,
   last_login      TIMESTAMP     NULL,
   created_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-  updated_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at      TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_email_tenant (email, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -28,16 +48,18 @@ CREATE TABLE IF NOT EXISTS users (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS categories (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT           NOT NULL DEFAULT 1,
   parent_id   INT           NULL,
   name        VARCHAR(120)  NOT NULL,
-  slug        VARCHAR(120)  UNIQUE NOT NULL,
+  slug        VARCHAR(120)  NOT NULL,
   icon_class  VARCHAR(100),
   description TEXT,
   tags        VARCHAR(500)  NULL COMMENT 'Comma-separated tags for filtering/search',
   sort_order  INT           DEFAULT 0,
   is_active   BOOLEAN       DEFAULT TRUE,
   created_at  TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
+  FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_cat_slug_tenant (slug, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -50,9 +72,10 @@ DROP TABLE IF EXISTS services;
 
 CREATE TABLE IF NOT EXISTS services (
   id              INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id       INT            NOT NULL DEFAULT 1,
   category_id     INT,
   name            VARCHAR(100)   NOT NULL,
-  slug            VARCHAR(120)   UNIQUE NOT NULL,
+  slug            VARCHAR(120)   NOT NULL,
   icon_class      VARCHAR(100)   NOT NULL,
   card_image_url  VARCHAR(500)   NULL COMMENT 'Optional image URL for browse card; if set, shown instead of icon',
   avg_rating      DECIMAL(2,1)   DEFAULT 4.5,
@@ -62,7 +85,8 @@ CREATE TABLE IF NOT EXISTS services (
   price_unit      VARCHAR(30)    DEFAULT 'per job',
   is_active       BOOLEAN        DEFAULT TRUE,
   created_at      TIMESTAMP      DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_svc_slug_tenant (slug, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -108,7 +132,8 @@ DROP TABLE IF EXISTS pros;
 
 CREATE TABLE IF NOT EXISTS pros (
   id                INT AUTO_INCREMENT PRIMARY KEY,
-  user_id           INT           UNIQUE NOT NULL,
+  tenant_id         INT           NOT NULL DEFAULT 1,
+  user_id           INT           NOT NULL,
   business_name     VARCHAR(200)  NOT NULL,
   description       TEXT,
   phone             VARCHAR(30),
@@ -135,13 +160,15 @@ CREATE TABLE IF NOT EXISTS pros (
   credit_last_refill DATE         NULL,
   created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
   updated_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_pro_user_tenant (user_id, tenant_id)
 );
 
 -- Pro ↔ Services (many-to-many)
 CREATE TABLE IF NOT EXISTS pro_services (
   pro_id     INT NOT NULL,
   service_id INT NOT NULL,
+  tenant_id  INT NOT NULL DEFAULT 1,
   PRIMARY KEY (pro_id, service_id),
   FOREIGN KEY (pro_id)     REFERENCES pros(id)     ON DELETE CASCADE,
   FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE
@@ -150,6 +177,7 @@ CREATE TABLE IF NOT EXISTS pro_services (
 -- Pro service areas (zip + city + radius)
 CREATE TABLE IF NOT EXISTS pro_service_areas (
   id         INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id  INT          NOT NULL DEFAULT 1,
   pro_id     INT          NOT NULL,
   zip_code   VARCHAR(10),
   city_id    INT,
@@ -165,6 +193,7 @@ CREATE TABLE IF NOT EXISTS pro_service_areas (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS leads (
   id           INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id    INT           NOT NULL DEFAULT 1,
   user_id      INT,
   service_id   INT,
   service_name VARCHAR(100),
@@ -214,6 +243,7 @@ CREATE TABLE IF NOT EXISTS leads (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS lead_claims (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT NOT NULL DEFAULT 1,
   lead_id     INT NOT NULL,
   pro_id      INT NOT NULL,
   status      ENUM('claimed','contacted','quoted','hired','completed','refunded') DEFAULT 'claimed',
@@ -235,8 +265,9 @@ CREATE TABLE IF NOT EXISTS lead_claims (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS subscription_plans (
   id                INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id         INT           NOT NULL DEFAULT 1,
   name              VARCHAR(60)   NOT NULL,
-  slug              VARCHAR(60)   UNIQUE NOT NULL,
+  slug              VARCHAR(60)   NOT NULL,
   stripe_price_id   VARCHAR(100),
   price_monthly     DECIMAL(10,2) NOT NULL,
   price_yearly      DECIMAL(10,2),
@@ -247,7 +278,8 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   is_popular        BOOLEAN       DEFAULT FALSE,
   is_active         BOOLEAN       DEFAULT TRUE,
   sort_order        INT           DEFAULT 0,
-  created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+  created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_plan_slug_tenant (slug, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -255,6 +287,7 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS payments (
   id                  INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id           INT           NOT NULL DEFAULT 1,
   user_id             INT           NOT NULL,
   pro_id              INT,
   stripe_payment_id   VARCHAR(100),
@@ -273,10 +306,11 @@ CREATE TABLE IF NOT EXISTS payments (
 
 CREATE TABLE IF NOT EXISTS invoices (
   id                 INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id          INT           NOT NULL DEFAULT 1,
   user_id            INT           NOT NULL,
   pro_id             INT,
   stripe_invoice_id  VARCHAR(100),
-  invoice_number     VARCHAR(30)   UNIQUE,
+  invoice_number     VARCHAR(30),
   amount             DECIMAL(10,2) NOT NULL,
   tax                DECIMAL(10,2) DEFAULT 0.00,
   total              DECIMAL(10,2) NOT NULL,
@@ -294,6 +328,7 @@ CREATE TABLE IF NOT EXISTS invoices (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS reviews (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT           NOT NULL DEFAULT 1,
   lead_id     INT,
   pro_id      INT           NOT NULL,
   user_id     INT           NOT NULL,
@@ -316,6 +351,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS notifications (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT           NOT NULL DEFAULT 1,
   user_id     INT           NOT NULL,
   type        ENUM('lead_new','lead_claimed','lead_quoted','lead_hired','review_new',
                    'payment_success','payment_failed','subscription_updated',
@@ -334,13 +370,14 @@ CREATE TABLE IF NOT EXISTS notifications (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS conversations (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT           NOT NULL DEFAULT 1,
   lead_id     INT,
   consumer_id INT           NOT NULL,
   pro_id      INT           NOT NULL,
   status      ENUM('active','archived','blocked') DEFAULT 'active',
   last_message_at TIMESTAMP NULL,
   created_at  TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_conv (lead_id, consumer_id, pro_id),
+  UNIQUE KEY uq_conv (lead_id, consumer_id, pro_id, tenant_id),
   FOREIGN KEY (lead_id)     REFERENCES leads(id) ON DELETE SET NULL,
   FOREIGN KEY (consumer_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (pro_id)      REFERENCES pros(id)  ON DELETE CASCADE
@@ -348,6 +385,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 CREATE TABLE IF NOT EXISTS messages (
   id              INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id       INT           NOT NULL DEFAULT 1,
   conversation_id INT           NOT NULL,
   sender_id       INT           NOT NULL,
   body            TEXT          NOT NULL,
@@ -363,6 +401,7 @@ CREATE TABLE IF NOT EXISTS messages (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS how_it_works (
   id           INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id    INT            NOT NULL DEFAULT 1,
   audience     ENUM('consumer','pro') NOT NULL,
   step_number  INT            NOT NULL,
   icon_class   VARCHAR(100)   NOT NULL,
@@ -375,6 +414,7 @@ CREATE TABLE IF NOT EXISTS how_it_works (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS sms_inbound (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT         NOT NULL DEFAULT 1,
   from_number VARCHAR(30) NOT NULL,
   to_number   VARCHAR(30),
   body        TEXT,
@@ -391,6 +431,7 @@ CREATE TABLE IF NOT EXISTS sms_inbound (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS audit_log (
   id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT,
   user_id     INT,
   action      VARCHAR(60)   NOT NULL,
   entity_type VARCHAR(60),
@@ -408,7 +449,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS settings (
   id            INT AUTO_INCREMENT PRIMARY KEY,
-  setting_key   VARCHAR(120) UNIQUE NOT NULL,
+  tenant_id     INT          NOT NULL DEFAULT 1,
+  setting_key   VARCHAR(120) NOT NULL,
   setting_value TEXT,
   setting_type  ENUM('string','number','boolean','json','secret') DEFAULT 'string',
   setting_group ENUM('general','stripe','twilio','homepage','seo','email','appearance','advanced','analytics') DEFAULT 'general',
@@ -416,7 +458,8 @@ CREATE TABLE IF NOT EXISTS settings (
   description   TEXT,
   is_public     BOOLEAN DEFAULT TRUE,
   sort_order    INT DEFAULT 0,
-  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_setting_key_tenant (setting_key, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -424,6 +467,7 @@ CREATE TABLE IF NOT EXISTS settings (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS lead_notes (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT NOT NULL DEFAULT 1,
   lead_id     INT NOT NULL,
   user_id     INT,
   note_type   ENUM('note','status_change','call','email','sms','meeting','internal','system') DEFAULT 'note',
@@ -438,6 +482,7 @@ CREATE TABLE IF NOT EXISTS lead_notes (
 
 CREATE TABLE IF NOT EXISTS lead_activity (
   id          INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id   INT NOT NULL DEFAULT 1,
   lead_id     INT NOT NULL,
   user_id     INT,
   action      VARCHAR(100) NOT NULL,
@@ -453,7 +498,8 @@ CREATE TABLE IF NOT EXISTS lead_activity (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS pages (
   id           INT AUTO_INCREMENT PRIMARY KEY,
-  slug         VARCHAR(200) UNIQUE NOT NULL,
+  tenant_id    INT          NOT NULL DEFAULT 1,
+  slug         VARCHAR(200) NOT NULL,
   title        VARCHAR(300) NOT NULL,
   content      LONGTEXT,
   excerpt      TEXT,
@@ -468,7 +514,8 @@ CREATE TABLE IF NOT EXISTS pages (
   created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+  FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_page_slug_tenant (slug, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -476,6 +523,7 @@ CREATE TABLE IF NOT EXISTS pages (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS lead_matches (
   id            INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id     INT NOT NULL DEFAULT 1,
   lead_id       INT NOT NULL,
   pro_id        INT NOT NULL,
   user_id       INT NOT NULL,
@@ -493,7 +541,7 @@ CREATE TABLE IF NOT EXISTS lead_matches (
   FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
   FOREIGN KEY (pro_id)  REFERENCES pros(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  UNIQUE KEY uq_lead_pro (lead_id, pro_id)
+  UNIQUE KEY uq_lead_pro_tenant (lead_id, pro_id, tenant_id)
 );
 
 -- ═══════════════════════════════════════════════════════════
@@ -501,6 +549,7 @@ CREATE TABLE IF NOT EXISTS lead_matches (
 -- ═══════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS credit_transactions (
   id            INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id     INT NOT NULL DEFAULT 1,
   pro_id        INT NOT NULL,
   user_id       INT NOT NULL,
   type          ENUM('signup_bonus','plan_credits','purchase','lead_claim','refund','admin_adjust','monthly_refill','promo','expiry') NOT NULL,
@@ -520,7 +569,8 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
 -- Notification templates
 CREATE TABLE IF NOT EXISTS notification_templates (
   id            INT AUTO_INCREMENT PRIMARY KEY,
-  slug          VARCHAR(120) UNIQUE NOT NULL,
+  tenant_id     INT          NOT NULL DEFAULT 1,
+  slug          VARCHAR(120) NOT NULL,
   name          VARCHAR(200) NOT NULL,
   channel       ENUM('email','sms') NOT NULL DEFAULT 'email',
   subject       VARCHAR(300),
@@ -529,7 +579,8 @@ CREATE TABLE IF NOT EXISTS notification_templates (
   variables     TEXT,
   is_active     BOOLEAN DEFAULT TRUE,
   updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_tmpl_slug_tenant (slug, tenant_id)
 );
 
 
@@ -581,62 +632,62 @@ INSERT INTO zip_codes (zip, city_id, state_id, latitude, longitude) VALUES
   ('98101',13,47,47.6114,-122.3371);
 
 -- Categories
-INSERT INTO categories (name, slug, icon_class, description, sort_order) VALUES
-  ('Home Repair',        'home-repair',       'faWrench',       'General home repair and maintenance',    1),
-  ('Plumbing & Water',   'plumbing-water',    'faFaucetDrip',   'Plumbing, water heaters, and drainage', 2),
-  ('Electrical',         'electrical',        'faBolt',         'Electrical work, wiring, and lighting',  3),
-  ('HVAC & Climate',     'hvac-climate',      'faFan',          'Heating, cooling, and ventilation',      4),
-  ('Outdoor & Landscape','outdoor-landscape', 'faLeaf',         'Landscaping, lawn care, and outdoor',    5),
-  ('Roofing & Exterior', 'roofing-exterior',  'faHouseChimney', 'Roofing, siding, and exterior work',     6),
-  ('Interior',           'interior',          'faPaintRoller',  'Painting, flooring, and interior design',7),
-  ('Cleaning',           'cleaning',          'faBroom',        'House cleaning and deep cleaning',       8),
-  ('Pest & Wildlife',    'pest-wildlife',     'faBug',          'Pest control and wildlife removal',      9),
-  ('Moving & Storage',   'moving-storage',    'faTruck',        'Moving, packing, and storage',          10);
+INSERT INTO categories (tenant_id, name, slug, icon_class, description, sort_order) VALUES
+  (1,'Home Repair',        'home-repair',       'faWrench',       'General home repair and maintenance',    1),
+  (1,'Plumbing & Water',   'plumbing-water',    'faFaucetDrip',   'Plumbing, water heaters, and drainage', 2),
+  (1,'Electrical',         'electrical',        'faBolt',         'Electrical work, wiring, and lighting',  3),
+  (1,'HVAC & Climate',     'hvac-climate',      'faFan',          'Heating, cooling, and ventilation',      4),
+  (1,'Outdoor & Landscape','outdoor-landscape', 'faLeaf',         'Landscaping, lawn care, and outdoor',    5),
+  (1,'Roofing & Exterior', 'roofing-exterior',  'faHouseChimney', 'Roofing, siding, and exterior work',     6),
+  (1,'Interior',           'interior',          'faPaintRoller',  'Painting, flooring, and interior design',7),
+  (1,'Cleaning',           'cleaning',          'faBroom',        'House cleaning and deep cleaning',       8),
+  (1,'Pest & Wildlife',    'pest-wildlife',     'faBug',          'Pest control and wildlife removal',      9),
+  (1,'Moving & Storage',   'moving-storage',    'faTruck',        'Moving, packing, and storage',          10);
 
 -- Services
-INSERT INTO services (category_id, name, slug, icon_class, avg_rating, review_count, review_label, min_price) VALUES
-  (1, 'Handyperson',        'handyperson',        'faWrench',       4.6, 599000, '599k+',  'from $158'),
-  (2, 'Plumbing',           'plumbing',           'faFaucetDrip',   4.6, 568000, '568k+',  'from $226'),
-  (3, 'Electrical',         'electrical',         'faBolt',         4.7, 412000, '412k+',  'from $189'),
-  (4, 'HVAC',               'hvac',               'faFan',          4.7, 306000, '306k+',  'from $350'),
-  (5, 'Landscaping',        'landscaping',        'faLeaf',         4.5, 280000, '280k+',  'from $145'),
-  (6, 'Roofing',            'roofing',            'faHouseChimney', 4.7, 325000, '325k+',  'from $471'),
-  (7, 'Painting',           'painting',           'faPaintRoller',  4.6, 390000, '390k+',  'from $320'),
-  (8, 'Cleaning',           'cleaning',           'faBroom',        4.5, 314000, '314k+',  'from $85'),
-  (7, 'Remodeling',         'remodeling',         'faHammer',       4.4, 180000, '180k+',  'from $2,500'),
-  (9, 'Pest Control',       'pest-control',       'faBug',          4.8, 317000, '317k+',  'from $186'),
-  (7, 'Flooring',           'flooring',           'faLayerGroup',   4.6, 210000, '210k+',  'from $890'),
-  (1, 'Appliance Repair',   'appliance-repair',   'faBlender',      4.7, 274000, '274k+',  'from $264'),
-  (5, 'Fence Installation', 'fence-installation', 'faGrip',         4.2, 48000,  '48k+',   'from $1,200'),
-  (5, 'Tree Service',       'tree-service',       'faTree',         4.5, 95000,  '95k+',   'from $350'),
-  (5, 'Pool Service',       'pool-service',       'faWater',        4.6, 62000,  '62k+',   'from $150'),
-  (10,'Moving',             'moving',             'faTruck',        4.4, 195000, '195k+',  'from $400'),
-  (1, 'Garage Door',        'garage-door',        'faWarehouse',    4.6, 95000,  '95k+',   'from $220'),
-  (8, 'Window Cleaning',    'window-cleaning',    'faWindowRestore',4.7, 88000,  '88k+',   'from $140');
+INSERT INTO services (tenant_id, category_id, name, slug, icon_class, avg_rating, review_count, review_label, min_price) VALUES
+  (1,1, 'Handyperson',        'handyperson',        'faWrench',       4.6, 599000, '599k+',  'from $158'),
+  (1,2, 'Plumbing',           'plumbing',           'faFaucetDrip',   4.6, 568000, '568k+',  'from $226'),
+  (1,3, 'Electrical',         'electrical',         'faBolt',         4.7, 412000, '412k+',  'from $189'),
+  (1,4, 'HVAC',               'hvac',               'faFan',          4.7, 306000, '306k+',  'from $350'),
+  (1,5, 'Landscaping',        'landscaping',        'faLeaf',         4.5, 280000, '280k+',  'from $145'),
+  (1,6, 'Roofing',            'roofing',            'faHouseChimney', 4.7, 325000, '325k+',  'from $471'),
+  (1,7, 'Painting',           'painting',           'faPaintRoller',  4.6, 390000, '390k+',  'from $320'),
+  (1,8, 'Cleaning',           'cleaning',           'faBroom',        4.5, 314000, '314k+',  'from $85'),
+  (1,7, 'Remodeling',         'remodeling',         'faHammer',       4.4, 180000, '180k+',  'from $2,500'),
+  (1,9, 'Pest Control',       'pest-control',       'faBug',          4.8, 317000, '317k+',  'from $186'),
+  (1,7, 'Flooring',           'flooring',           'faLayerGroup',   4.6, 210000, '210k+',  'from $890'),
+  (1,1, 'Appliance Repair',   'appliance-repair',   'faBlender',      4.7, 274000, '274k+',  'from $264'),
+  (1,5, 'Fence Installation', 'fence-installation', 'faGrip',         4.2, 48000,  '48k+',   'from $1,200'),
+  (1,5, 'Tree Service',       'tree-service',       'faTree',         4.5, 95000,  '95k+',   'from $350'),
+  (1,5, 'Pool Service',       'pool-service',       'faWater',        4.6, 62000,  '62k+',   'from $150'),
+  (1,10,'Moving',             'moving',             'faTruck',        4.4, 195000, '195k+',  'from $400'),
+  (1,1, 'Garage Door',        'garage-door',        'faWarehouse',    4.6, 95000,  '95k+',   'from $220'),
+  (1,8, 'Window Cleaning',    'window-cleaning',    'faWindowRestore',4.7, 88000,  '88k+',   'from $140');
 
 -- Subscription Plans
-INSERT INTO subscription_plans (name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order) VALUES
-  ('Free',         'free',         NULL,                   0.00,    0.00,   0,  2,  2,  '{"badge": false, "priority_listing": false, "analytics": "basic",   "support": "community"}',     FALSE, 1),
-  ('Starter',      'starter',      'price_starter_monthly', 29.00, 290.00,  10, 5,  5,  '{"badge": true,  "priority_listing": false, "analytics": "basic",   "support": "email"}',          FALSE, 2),
-  ('Professional', 'professional', 'price_pro_monthly',     79.00, 790.00,  30, 15, 10, '{"badge": true,  "priority_listing": true,  "analytics": "advanced","support": "priority_email"}', TRUE,  3),
-  ('Enterprise',   'enterprise',   'price_ent_monthly',    199.00,1990.00, 100, 50, 50, '{"badge": true,  "priority_listing": true,  "analytics": "full",    "support": "dedicated"}',      FALSE, 4);
+INSERT INTO subscription_plans (tenant_id, name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order) VALUES
+  (1,'Free',         'free',         NULL,                   0.00,    0.00,   0,  2,  2,  '{"badge": false, "priority_listing": false, "analytics": "basic",   "support": "community"}',     FALSE, 1),
+  (1,'Starter',      'starter',      'price_starter_monthly', 29.00, 290.00,  10, 5,  5,  '{"badge": true,  "priority_listing": false, "analytics": "basic",   "support": "email"}',          FALSE, 2),
+  (1,'Professional', 'professional', 'price_pro_monthly',     79.00, 790.00,  30, 15, 10, '{"badge": true,  "priority_listing": true,  "analytics": "advanced","support": "priority_email"}', TRUE,  3),
+  (1,'Enterprise',   'enterprise',   'price_ent_monthly',    199.00,1990.00, 100, 50, 50, '{"badge": true,  "priority_listing": true,  "analytics": "full",    "support": "dedicated"}',      FALSE, 4);
 
 -- How It Works
-INSERT INTO how_it_works (audience, step_number, icon_class, title, description) VALUES
-  ('consumer', 1, 'faClipboardList',      'Describe Your Project',   'Tell us what you need — service type, details, and your ZIP code. Takes less than 2 minutes.'),
-  ('consumer', 2, 'faMagnifyingGlass',    'Get Matched Instantly',   'We instantly match you with verified local pros in your area who specialize in exactly what you need.'),
-  ('consumer', 3, 'faComments',           'Compare & Choose',        'Receive up to 4 quotes. Compare pricing, read real reviews, and pick the pro you trust most.'),
-  ('consumer', 4, 'faTrophy',             'Job Done Right',          'Your pro handles the work. Leave a verified review to help your neighbors find great pros too.'),
-  ('pro',      1, 'faPenToSquare',        'Create Your Profile',     'Sign up, list your services, add photos of your work, and set up your business profile in minutes.'),
-  ('pro',      2, 'faLocationDot',        'Set Your Service Area',   'Choose the ZIP codes and cities you want to serve. Only receive leads from your target area.'),
-  ('pro',      3, 'faEnvelopeOpenText',   'Receive Qualified Leads', 'Get notified instantly when a homeowner in your area requests your service. Pay only for leads you want.'),
-  ('pro',      4, 'faCircleDollarToSlot', 'Win More Business',       'Respond fast, send a quote, and close the job. Build your reputation with every 5-star review.');
+INSERT INTO how_it_works (tenant_id, audience, step_number, icon_class, title, description) VALUES
+  (1,'consumer', 1, 'faClipboardList',      'Describe Your Project',   'Tell us what you need — service type, details, and your ZIP code. Takes less than 2 minutes.'),
+  (1,'consumer', 2, 'faMagnifyingGlass',    'Get Matched Instantly',   'We instantly match you with verified local pros in your area who specialize in exactly what you need.'),
+  (1,'consumer', 3, 'faComments',           'Compare & Choose',        'Receive up to 4 quotes. Compare pricing, read real reviews, and pick the pro you trust most.'),
+  (1,'consumer', 4, 'faTrophy',             'Job Done Right',          'Your pro handles the work. Leave a verified review to help your neighbors find great pros too.'),
+  (1,'pro',      1, 'faPenToSquare',        'Create Your Profile',     'Sign up, list your services, add photos of your work, and set up your business profile in minutes.'),
+  (1,'pro',      2, 'faLocationDot',        'Set Your Service Area',   'Choose the ZIP codes and cities you want to serve. Only receive leads from your target area.'),
+  (1,'pro',      3, 'faEnvelopeOpenText',   'Receive Qualified Leads', 'Get notified instantly when a homeowner in your area requests your service. Pay only for leads you want.'),
+  (1,'pro',      4, 'faCircleDollarToSlot', 'Win More Business',       'Respond fast, send a quote, and close the job. Build your reputation with every 5-star review.');
 
 -- Demo users: admin uses "admin123", pro/consumer use "password123"
-INSERT INTO users (email, password_hash, role, first_name, last_name, phone, email_verified) VALUES
-  ('admin@homepro.com',   '$2b$10$5fqR2RH81lX.hYJX1urt1O.7wyH4odVkVKBnmKRZsot4MKMplHamm', 'admin',    'Admin',  'User',    '555-0000', TRUE),
-  ('pro@demo.com',        '$2b$10$jRvwFXcHsT83b.ukTSkWuOF1WtkVc2MSvaGR1shBPmscb/NTqH11y', 'pro',      'Demo',   'Pro',     '555-9999', TRUE),
-  ('consumer@demo.com',   '$2b$10$jRvwFXcHsT83b.ukTSkWuOF1WtkVc2MSvaGR1shBPmscb/NTqH11y', 'consumer', 'Jane',   'Smith',   '555-1111', TRUE);
+INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone, email_verified) VALUES
+  (1,'admin@homepro.com',   '$2b$10$5fqR2RH81lX.hYJX1urt1O.7wyH4odVkVKBnmKRZsot4MKMplHamm', 'admin',    'Admin',  'User',    '555-0000', TRUE),
+  (1,'pro@demo.com',        '$2b$10$jRvwFXcHsT83b.ukTSkWuOF1WtkVc2MSvaGR1shBPmscb/NTqH11y', 'pro',      'Demo',   'Pro',     '555-9999', TRUE),
+  (1,'consumer@demo.com',   '$2b$10$jRvwFXcHsT83b.ukTSkWuOF1WtkVc2MSvaGR1shBPmscb/NTqH11y', 'consumer', 'Jane',   'Smith',   '555-1111', TRUE);
 
 -- Demo pro profile
 INSERT INTO pros (user_id, business_name, description, phone, years_in_business, is_verified, avg_rating, total_reviews, subscription_plan, lead_credits) VALUES

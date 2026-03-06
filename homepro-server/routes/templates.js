@@ -6,8 +6,9 @@ const { clearTemplateCache } = require('../services/email');
 
 // GET /api/templates — admin: list all templates
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    const [rows] = await db.query('SELECT * FROM notification_templates ORDER BY channel, name');
+    const [rows] = await db.query('SELECT * FROM notification_templates WHERE tenant_id = ? ORDER BY channel, name', [tid]);
     res.json(rows);
   } catch (err) {
     console.error('GET /templates error:', err);
@@ -17,8 +18,9 @@ router.get('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // GET /api/templates/:slug — admin: get single template
 router.get('/:slug', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    const [rows] = await db.query('SELECT * FROM notification_templates WHERE slug = ?', [req.params.slug]);
+    const [rows] = await db.query('SELECT * FROM notification_templates WHERE slug = ? AND tenant_id = ?', [req.params.slug, tid]);
     if (!rows.length) return res.status(404).json({ error: 'Template not found' });
     res.json(rows[0]);
   } catch (err) {
@@ -28,9 +30,10 @@ router.get('/:slug', authenticate, requireRole('admin'), async (req, res) => {
 
 // PUT /api/templates/:slug — admin: update template
 router.put('/:slug', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { name, subject, body, is_active } = req.body;
   try {
-    const [existing] = await db.query('SELECT id FROM notification_templates WHERE slug = ?', [req.params.slug]);
+    const [existing] = await db.query('SELECT id FROM notification_templates WHERE slug = ? AND tenant_id = ?', [req.params.slug, tid]);
     if (!existing.length) return res.status(404).json({ error: 'Template not found' });
 
     await db.query(
@@ -39,8 +42,8 @@ router.put('/:slug', authenticate, requireRole('admin'), async (req, res) => {
         subject = COALESCE(?, subject),
         body = COALESCE(?, body),
         is_active = COALESCE(?, is_active)
-       WHERE slug = ?`,
-      [name, subject, body, is_active, req.params.slug]
+       WHERE slug = ? AND tenant_id = ?`,
+      [name, subject, body, is_active, req.params.slug, tid]
     );
 
     clearTemplateCache();

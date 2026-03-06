@@ -19,17 +19,18 @@ router.post('/register', ...spamProtect({ keyPrefix: 'register', rateLimitMax: 1
   const validRoles = ['consumer', 'pro'];
   const userRole = validRoles.includes(role) ? role : 'consumer';
 
+  const tenantId = req.tenant?.id || 1;
   try {
-    const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+    const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND tenant_id = ?', [email, tenantId]);
     if (existing.length) {
       return res.status(409).json({ error: 'An account with this email already exists' });
     }
 
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
-      `INSERT INTO users (email, password_hash, role, first_name, last_name, phone)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [email, hash, userRole, firstName || null, lastName || null, phone || null]
+      `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [tenantId, email, hash, userRole, firstName || null, lastName || null, phone || null]
     );
 
     const user = { id: result.insertId, email, role: userRole };
@@ -59,8 +60,9 @@ router.post('/login', rateLimit({ keyPrefix: 'login', max: 15, windowMs: 15 * 60
     return res.status(400).json({ error: 'Email and password are required' });
   }
 
+  const tenantId = req.tenant?.id || 1;
   try {
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
+    const [rows] = await db.query('SELECT * FROM users WHERE email = ? AND tenant_id = ?', [email, tenantId]);
     if (!rows.length) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }

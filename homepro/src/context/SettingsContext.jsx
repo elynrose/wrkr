@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { getSettings } from '../services/api';
+
+const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 const SettingsContext = createContext(null);
+export const TenantContext = createContext(null);
 
 const DEFAULTS = {
   site_name: 'HomePro',
@@ -13,13 +15,37 @@ const DEFAULTS = {
   google_analytics_measurement_id: '',
 };
 
+const DEFAULT_TENANT = {
+  id: 1,
+  name: 'HomePro',
+  slug: 'default',
+  plan: 'starter',
+};
+
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULTS);
+  const [tenant, setTenant] = useState(DEFAULT_TENANT);
 
   useEffect(() => {
-    getSettings()
-      .then((data) => setSettings((prev) => ({ ...DEFAULTS, ...prev, ...data })))
-      .catch(() => { /* use defaults when API unavailable */ });
+    // Load tenant config (includes settings) in one call
+    fetch(`${BASE}/tenant/config`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        if (data.tenant) setTenant(data.tenant);
+        if (data.settings) {
+          setSettings(prev => ({ ...DEFAULTS, ...prev, ...data.settings }));
+        }
+      })
+      .catch(() => {
+        // Fall back to direct settings fetch
+        fetch(`${BASE}/settings`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data) setSettings(prev => ({ ...DEFAULTS, ...prev, ...data }));
+          })
+          .catch(() => {});
+      });
   }, []);
 
   useEffect(() => {
@@ -38,9 +64,11 @@ export function SettingsProvider({ children }) {
   };
 
   return (
-    <SettingsContext.Provider value={value}>
-      {children}
-    </SettingsContext.Provider>
+    <TenantContext.Provider value={tenant}>
+      <SettingsContext.Provider value={value}>
+        {children}
+      </SettingsContext.Provider>
+    </TenantContext.Provider>
   );
 }
 
@@ -55,3 +83,4 @@ const FALLBACK = {
 };
 
 export const useSettings = () => useContext(SettingsContext) || FALLBACK;
+export const useTenant = () => useContext(TenantContext) || DEFAULT_TENANT;

@@ -54,12 +54,13 @@ function scorePro(pro, lead) {
  * Find matching pros for a lead, score/rank them, and notify top N via SMS.
  * Returns the created lead_matches records.
  */
-async function matchAndNotify(leadId) {
+async function matchAndNotify(leadId, tenantId = 1) {
   const { notifyCount: MAX_NOTIFY, expiryHours: MATCH_EXPIRY_HOURS } = await getMatchConfig();
 
   const [leadRows] = await db.query('SELECT * FROM leads WHERE id = ?', [leadId]);
   if (!leadRows.length) throw new Error(`Lead ${leadId} not found`);
   const lead = leadRows[0];
+  const tid = tenantId || lead.tenant_id || 1;
 
   // Find all pros whose service areas include this lead's ZIP AND who offer this service
   const [candidateRows] = await db.query(`
@@ -71,7 +72,8 @@ async function matchAndNotify(leadId) {
     JOIN users u ON p.user_id = u.id
     LEFT JOIN pro_service_areas psa ON psa.pro_id = p.id
     LEFT JOIN pro_services ps ON ps.pro_id = p.id
-    WHERE p.sms_opt_in = TRUE
+    WHERE p.tenant_id = ?
+      AND p.sms_opt_in = TRUE
       AND (p.subscription_status IN ('active', 'trialing', 'none'))
       AND (p.subscription_plan = 'enterprise' OR p.lead_credits > 0)
       AND (
@@ -79,12 +81,12 @@ async function matchAndNotify(leadId) {
         ${lead.service_id ? 'OR ps.service_id = ?' : ''}
       )
     GROUP BY p.id
-  `, lead.service_id ? [lead.zip, lead.service_id] : [lead.zip]);
+  `, lead.service_id ? [tid, lead.zip, lead.service_id] : [tid, lead.zip]);
 
   if (!candidateRows.length) {
     console.log(`[MATCH] No matching pros found for lead #${leadId} (ZIP: ${lead.zip})`);
-    await db.query('INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-      [leadId, 'match_attempted', 'No matching pros found in service area']);
+    await db.query('INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+      [tid, leadId, 'match_attempted', 'No matching pros found in service area']);
     return [];
   }
 
@@ -121,9 +123,9 @@ async function matchAndNotify(leadId) {
     try {
       await db.query(
         `INSERT INTO lead_matches
-          (lead_id, pro_id, user_id, match_score, match_rank, claim_token, expires_at)
-         VALUES (?,?,?,?,?,?,?)`,
-        [leadId, pro.id, pro.user_id, pro.matchScore, rank, token, expiresAt]
+          (tenant_id, lead_id, pro_id, user_id, match_score, match_rank, claim_token, expires_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [tid, leadId, pro.id, pro.user_id, pro.matchScore, rank, token, expiresAt]
       );
 
       // Send SMS if phone is available

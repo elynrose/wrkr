@@ -15,8 +15,9 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
   const { service, zip, city, description, urgency, name, email, phone, address, budgetMin, budgetMax, propertyType } = req.body;
   if (!email || !service) return res.status(400).json({ error: 'Service and email are required' });
 
+  const tenantId = req.tenant?.id || 1;
   try {
-    const [svc] = await db.query('SELECT id FROM services WHERE name = ? LIMIT 1', [service]);
+    const [svc] = await db.query('SELECT id FROM services WHERE name = ? AND tenant_id = ? LIMIT 1', [service, tenantId]);
     const serviceId = svc.length ? svc[0].id : null;
 
     let cityId = null;
@@ -30,14 +31,14 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
 
     const [result] = await db.query(
       `INSERT INTO leads
-        (user_id, service_id, service_name, customer_name, email, phone, zip, city_id, city_name, address, description, urgency, budget_min, budget_max, property_type, lead_value)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [req.user?.id || null, serviceId, service, name, email, phone, zip, cityId, city, address, description, dbUrgency, budgetMin, budgetMax, propertyType || 'residential', serviceId ? 25.00 : 15.00]
+        (tenant_id, user_id, service_id, service_name, customer_name, email, phone, zip, city_id, city_name, address, description, urgency, budget_min, budget_max, property_type, lead_value)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [tenantId, req.user?.id || null, serviceId, service, name, email, phone, zip, cityId, city, address, description, dbUrgency, budgetMin, budgetMax, propertyType || 'residential', serviceId ? 25.00 : 15.00]
     );
 
     // Log activity
-    await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [result.insertId, req.user?.id || null, 'lead_created', `Lead submitted via website for ${service}`]);
+    await db.query('INSERT INTO lead_activity (tenant_id, lead_id, user_id, action, details) VALUES (?,?,?,?,?)',
+      [tenantId, result.insertId, req.user?.id || null, 'lead_created', `Lead submitted via website for ${service}`]);
 
     // Send confirmation email to customer
     const newLeadId = result.insertId;
@@ -49,7 +50,7 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
     // Trigger dynamic matching asynchronously (don't block the response)
     setImmediate(async () => {
       try {
-        const matches = await matchAndNotify(newLeadId);
+        const matches = await matchAndNotify(newLeadId, tenantId);
         console.log(`[AUTO-MATCH] Lead #${newLeadId}: ${matches.length} pros matched`);
       } catch (err) {
         console.error(`[AUTO-MATCH] Lead #${newLeadId} matching failed:`, err.message);
@@ -65,14 +66,15 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
 
 // GET /api/leads — list leads (admin only), paginated
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const { zip, city, service_id, status, source, priority, limit = 25, page = 1 } = req.query;
     const limitNum = Math.min(parseInt(limit) || 25, 100);
     const pageNum = Math.max(1, parseInt(page) || 1);
     const offset = (pageNum - 1) * limitNum;
 
-    const baseWhere = [];
-    const params = [];
+    const baseWhere = ['l.tenant_id = ?'];
+    const params = [tid];
     if (zip)        { baseWhere.push('l.zip = ?');          params.push(zip); }
     if (city)       { baseWhere.push('l.city_name LIKE ?');  params.push(`%${city}%`); }
     if (service_id) { baseWhere.push('l.service_id = ?');   params.push(service_id); }
@@ -329,7 +331,7 @@ router.patch('/:id/status', authenticate, async (req, res) => {
           const token = crypto.randomBytes(32).toString('hex');
           await db.query('UPDATE leads SET review_token = ?, review_sent = TRUE WHERE id = ?', [token, leadId]);
 
-          const siteConfig = await getPublicSettings();
+          const siteConfig = await getPublicSettings(lead.tenant_id || 1);
           const siteName = siteConfig.site_name || 'HomePro';
           const siteUrl = siteConfig.site_url || process.env.FRONTEND_URL || 'http://localhost:5173';
           const reviewUrl = `${siteUrl}/#review/${token}`;

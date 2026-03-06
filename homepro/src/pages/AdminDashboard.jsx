@@ -171,6 +171,14 @@ export default function AdminDashboard({ onShowLead }) {
   const [testStripeSending, setTestStripeSending] = useState(false);
   const [testStripeResult, setTestStripeResult] = useState(null);
 
+  // Tenant management state (superadmin only)
+  const [tenants, setTenants] = useState([]);
+  const [tenantsTotal, setTenantsTotal] = useState(0);
+  const [tenantsPage, setTenantsPage] = useState(1);
+  const tenantsLimit = 20;
+  const [editTenant, setEditTenant] = useState(null);
+  const [newTenant, setNewTenant] = useState(null);
+
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
 
   useEffect(() => {
@@ -245,6 +253,17 @@ export default function AdminDashboard({ onShowLead }) {
       })
       .catch(() => {});
   }, [tab, reviewsPage, reviewFilter]);
+
+  // Load tenants when Tenants tab is open (superadmin)
+  useEffect(() => {
+    if (tab !== 'tenants') return;
+    api.get(`/superadmin/tenants?page=${tenantsPage}&limit=${tenantsLimit}`)
+      .then(d => {
+        setTenants(d.tenants ?? []);
+        setTenantsTotal(d.total ?? 0);
+      })
+      .catch(() => {});
+  }, [tab, tenantsPage]);
 
   // Load steps when Pages > Homepage Steps sub-tab is opened
   useEffect(() => {
@@ -412,16 +431,17 @@ export default function AdminDashboard({ onShowLead }) {
   const ts = dm ? '#94a3b8' : '#64748b';
 
   const tabs = [
-    { key: 'overview',   label: 'Overview',    icon: faShieldHalved },
-    { key: 'users',      label: 'Users',       icon: faUsers },
-    { key: 'leads',      label: 'Leads',       icon: faClipboardList },
-    { key: 'packages',   label: 'Packages',    icon: faCubes },
-    { key: 'categories', label: 'Categories',  icon: faTag },
-    { key: 'services',   label: 'Services',    icon: faLayerGroup },
-    { key: 'reviews',    label: 'Reviews',     icon: faStar },
-    { key: 'pages',      label: 'Pages',       icon: faFileLines },
-    { key: 'templates',  label: 'Templates',   icon: faBell },
-    { key: 'settings',   label: 'Settings',    icon: faGear },
+    { key: 'overview',    label: 'Overview',    icon: faShieldHalved },
+    { key: 'users',       label: 'Users',       icon: faUsers },
+    { key: 'leads',       label: 'Leads',       icon: faClipboardList },
+    { key: 'packages',    label: 'Packages',    icon: faCubes },
+    { key: 'categories',  label: 'Categories',  icon: faTag },
+    { key: 'services',    label: 'Services',    icon: faLayerGroup },
+    { key: 'reviews',     label: 'Reviews',     icon: faStar },
+    { key: 'pages',       label: 'Pages',       icon: faFileLines },
+    { key: 'templates',   label: 'Templates',   icon: faBell },
+    { key: 'settings',    label: 'Settings',    icon: faGear },
+    ...(user?.role === 'superadmin' ? [{ key: 'tenants', label: 'Tenants', icon: faLayerGroup }] : []),
   ];
 
   const pagesSubTabs = [
@@ -1291,6 +1311,122 @@ export default function AdminDashboard({ onShowLead }) {
               </Card>
             );
           })}
+        </>}
+
+        {/* ── Tenants (Superadmin only) ── */}
+        {tab === 'tenants' && user?.role === 'superadmin' && <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Tenants ({tenantsTotal})</h3>
+            <Btn onClick={() => setNewTenant({ name: '', slug: '', customDomain: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' })}>
+              <FontAwesomeIcon icon={faPlus} /> New Tenant
+            </Btn>
+          </div>
+
+          {newTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Create New Tenant</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Tenant Name" value={newTenant.name} onChange={v => setNewTenant({...newTenant, name: v})} dm={dm} placeholder="Acme Home Services" />
+              <Input label="Slug (unique ID)" value={newTenant.slug} onChange={v => setNewTenant({...newTenant, slug: v.toLowerCase().replace(/\s/g,'-')})} dm={dm} placeholder="acme-home" />
+              <Input label="Custom Domain (optional)" value={newTenant.customDomain} onChange={v => setNewTenant({...newTenant, customDomain: v})} dm={dm} placeholder="acmehome.com" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
+                <select value={newTenant.plan} onChange={e => setNewTenant({...newTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+              <Input label="Admin Email" value={newTenant.adminEmail} onChange={v => setNewTenant({...newTenant, adminEmail: v})} dm={dm} type="email" placeholder="admin@acmehome.com" />
+              <Input label="Admin Password" value={newTenant.adminPassword} onChange={v => setNewTenant({...newTenant, adminPassword: v})} dm={dm} type="password" />
+              <Input label="Admin First Name" value={newTenant.adminFirstName} onChange={v => setNewTenant({...newTenant, adminFirstName: v})} dm={dm} />
+              <Input label="Admin Last Name" value={newTenant.adminLastName} onChange={v => setNewTenant({...newTenant, adminLastName: v})} dm={dm} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Btn onClick={async () => {
+                if (!newTenant.name || !newTenant.slug) return flash('Name and slug are required');
+                setSaving(true);
+                try {
+                  const r = await api.post('/superadmin/tenants', { name: newTenant.name, slug: newTenant.slug, customDomain: newTenant.customDomain || undefined, plan: newTenant.plan, adminEmail: newTenant.adminEmail || undefined, adminPassword: newTenant.adminPassword || undefined, adminFirstName: newTenant.adminFirstName, adminLastName: newTenant.adminLastName });
+                  if (r.error) { flash(r.error); setSaving(false); return; }
+                  flash(`Tenant "${newTenant.name}" created (ID: ${r.id})`);
+                  setNewTenant(null);
+                  const d = await api.get(`/superadmin/tenants?page=1&limit=${tenantsLimit}`);
+                  setTenants(d.tenants ?? []);
+                  setTenantsTotal(d.total ?? 0);
+                } catch (e) { flash('Failed to create tenant'); }
+                setSaving(false);
+              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Creating...' : 'Create Tenant'}</Btn>
+              <Btn variant="ghost" onClick={() => setNewTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+
+          {editTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Edit Tenant: {editTenant.name}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Tenant Name" value={editTenant.name||''} onChange={v => setEditTenant({...editTenant, name: v})} dm={dm} />
+              <Input label="Custom Domain" value={editTenant.custom_domain||''} onChange={v => setEditTenant({...editTenant, custom_domain: v})} dm={dm} placeholder="client.com" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Status</label>
+                <select value={editTenant.status||'active'} onChange={e => setEditTenant({...editTenant, status: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
+                <select value={editTenant.plan||'starter'} onChange={e => setEditTenant({...editTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Btn onClick={async () => {
+                setSaving(true);
+                try {
+                  await api.patch(`/superadmin/tenants/${editTenant.id}`, { name: editTenant.name, customDomain: editTenant.custom_domain || null, status: editTenant.status, plan: editTenant.plan });
+                  setTenants(ts => ts.map(t => t.id === editTenant.id ? { ...t, ...editTenant, custom_domain: editTenant.custom_domain || null } : t));
+                  setEditTenant(null);
+                  flash('Tenant updated');
+                } catch (e) { flash('Failed to update'); }
+                setSaving(false);
+              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}</Btn>
+              <Btn variant="ghost" onClick={() => setEditTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+
+          <Card dm={dm}>
+            <Table headers={['ID','Name','Slug','Domain','Plan','Status','Users','Leads','Created','Actions']} dm={dm}>
+              {tenants.map(t => (
+                <tr key={t.id} style={{ borderBottom: `1px solid ${border}` }}>
+                  <Td dm={dm}>{t.id}</Td>
+                  <Td dm={dm} fw={600}>{t.name}</Td>
+                  <Td dm={dm}><code style={{ fontSize: 11, background: dm?'#1e293b':'#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.slug}</code></Td>
+                  <Td dm={dm}>{t.custom_domain || <span style={{ color: ts, fontSize: 11 }}>none</span>}</Td>
+                  <Td dm={dm}><Badge color="#7c3aed" bg="#ede9fe">{t.plan}</Badge></Td>
+                  <Td dm={dm}><Badge color={t.status === 'active' ? '#16a34a' : t.status === 'suspended' ? '#dc2626' : '#d97706'} bg={t.status === 'active' ? '#dcfce7' : t.status === 'suspended' ? '#fee2e2' : '#fef9c3'}>{t.status}</Badge></Td>
+                  <Td dm={dm}>{t.user_count ?? '—'}</Td>
+                  <Td dm={dm}>{t.lead_count ?? '—'}</Td>
+                  <Td dm={dm}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}</Td>
+                  <Td dm={dm}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <Btn small onClick={() => setEditTenant({...t})}><FontAwesomeIcon icon={faPen} /></Btn>
+                      {t.id !== 1 && <Btn small variant="danger" onClick={async () => {
+                        if (!confirm(`Suspend tenant "${t.name}"?`)) return;
+                        await api.del(`/superadmin/tenants/${t.id}`);
+                        setTenants(ts => ts.map(x => x.id === t.id ? {...x, status: 'suspended'} : x));
+                        flash('Tenant suspended');
+                      }}><FontAwesomeIcon icon={faTrash} /></Btn>}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+              {!tenants.length && <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: ts, fontSize: 13 }}>No tenants found</td></tr>}
+            </Table>
+            <PaginationBar page={tenantsPage} total={tenantsTotal} limit={tenantsLimit} onPageChange={setTenantsPage} dm={dm} />
+          </Card>
         </>}
 
       </div>

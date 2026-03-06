@@ -3,35 +3,14 @@ const mysql = require('mysql2/promise');
 const fs    = require('fs');
 const path  = require('path');
 
-function getConnectionConfig() {
-  const url = process.env.MYSQL_URL || process.env.DATABASE_URL;
-  if (url && url.startsWith('mysql')) {
-    try {
-      const u = new URL(url);
-      return {
-        host:     u.hostname,
-        port:     parseInt(u.port) || 3306,
-        user:     u.username,
-        password: u.password,
-        database: (u.pathname || '/').replace(/^\//, '') || 'homepro',
-        multipleStatements: true,
-      };
-    } catch (e) {
-      console.warn('Invalid MYSQL_URL, using DB_* vars');
-    }
-  }
-  return {
-    host:     process.env.DB_HOST     || process.env.MYSQLHOST     || 'localhost',
-    port:     parseInt(process.env.DB_PORT || process.env.MYSQLPORT || '3306') || 3306,
-    user:     process.env.DB_USER     || process.env.MYSQLUSER       || 'root',
-    password: process.env.DB_PASSWORD || process.env.MYSQLPASSWORD || '',
-    database: process.env.DB_NAME     || process.env.MYSQLDATABASE || 'homepro',
-    multipleStatements: true,
-  };
-}
-
 async function main() {
-  const conn = await mysql.createConnection(getConnectionConfig());
+  const conn = await mysql.createConnection({
+    host:     process.env.DB_HOST     || 'localhost',
+    port:     parseInt(process.env.DB_PORT) || 3306,
+    user:     process.env.DB_USER     || 'root',
+    password: process.env.DB_PASSWORD || '',
+    multipleStatements: true,
+  });
 
   console.log('✅ Connected to MySQL');
 

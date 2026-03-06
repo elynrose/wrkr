@@ -26,6 +26,8 @@ import RecentReviews   from './components/RecentReviews';
 import CmsPage          from './pages/CmsPage';
 import ClaimPage        from './pages/ClaimPage';
 import ReviewPage       from './pages/ReviewPage';
+import InstallPage      from './pages/InstallPage';
+import TenantSignupPage from './pages/TenantSignupPage';
 import ErrorBoundary    from './components/ErrorBoundary';
 import GoogleAnalytics  from './components/GoogleAnalytics';
 
@@ -64,6 +66,15 @@ function AppInner() {
   useEffect(() => {
     const parseHash = () => {
       const hash = window.location.hash;
+      const pathname = window.location.pathname || '';
+      if (pathname === '/install' || hash === '#install' || hash === '#/install') {
+        setView('install');
+        return;
+      }
+      if (pathname === '/join' || hash === '#join' || hash === '#/join') {
+        setView('join');
+        return;
+      }
       const claimMatch = hash.match(/^#claim\/(.+)$/);
       if (claimMatch) {
         setClaimToken(claimMatch[1]);
@@ -80,6 +91,10 @@ function AppInner() {
       if (pageMatch) {
         setCmsSlug(pageMatch[1]);
         setView('cms-page');
+        return;
+      }
+      if (hash === '#install' || hash === '#/install') {
+        setView('install');
       }
     };
     parseHash();
@@ -164,6 +179,8 @@ function AppInner() {
   // Full-page views (no header/footer)
   if (view === 'claim' && claimToken) return <ClaimPage token={claimToken} onNavigate={navigate} />;
   if (view === 'review' && reviewToken) return <ReviewPage token={reviewToken} onNavigate={navigate} />;
+  if (view === 'install') return <InstallPage onNavigate={navigate} />;
+  if (view === 'join')    return <TenantSignupPage onNavigate={navigate} />;
   if (view === 'login') return <LoginPage onNavigate={navigate} />;
   if (view === 'register') return <RegisterPage onNavigate={navigate} />;
 
@@ -228,7 +245,7 @@ function AppInner() {
         <LeadDetailsPage leadId={selectedLeadId} onBack={() => setSelectedLeadId(null)} />
       )}
 
-      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim','review'].includes(view) && (
+      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim','review','install'].includes(view) && (
         <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 40 }}>
           <h2 style={{ fontSize: 48, fontWeight: 800, color: 'var(--color-primary)' }}>404</h2>
           <p style={{ fontSize: 18, fontWeight: 600 }}>Page not found</p>

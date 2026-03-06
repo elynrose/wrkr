@@ -165,3 +165,39 @@ API is under `/api/` (e.g. `/api/leads`, `/api/matching/claim/:token`, `/api/sms
 - **Site name / contact** — Configured in Admin → Settings → General; used in emails, SMS, and footer.
 
 This document reflects the app as built: single-claim model, follow-up SMS with YES/NO/STOP, re-match when the customer says no, and admin control over templates, settings, and content.
+
+---
+
+## Multi-Tenant Architecture
+
+The platform supports **multi-tenancy** — a single server installation hosts multiple independent sites (tenants), each on their own custom domain with isolated data, settings, branding, and credentials.
+
+### How It Works
+
+- Every database table has a `tenant_id` column; all queries are scoped to the active tenant.
+- A `tenants` table stores: name, slug, custom domain, status, and plan.
+- The **tenant resolution middleware** reads the `Host` HTTP header on every request and matches it against `custom_domain` in the tenants table (or `localhost` → default tenant).
+- Each tenant gets its own: Stripe keys, Twilio credentials, SMTP settings, theme, site name, categories, services, pages, and users.
+- The default tenant (id=1) is the primary installation; existing data is unaffected.
+
+### Setting Up a New Tenant
+
+1. Log in as a **superadmin** user (role: `superadmin`).
+2. Navigate to **Admin → Tenants** tab.
+3. Click **New Tenant**, fill in name, slug, custom domain, plan, and admin credentials.
+4. The platform provisions the tenant with default settings, templates, categories, and plans (copied from tenant 1).
+5. Point the tenant's domain DNS A-record to this server's IP.
+6. The tenant's admin logs into their branded site and customizes settings.
+
+Alternatively, new tenants can self-sign-up at `/join` (the `TenantSignupPage`).
+
+### Running the Migration (Existing Installs)
+
+If upgrading from a single-tenant installation:
+
+```bash
+cd homepro-server
+node migrate-multitenancy.js
+```
+
+This adds `tenant_id` to all tables and updates unique constraints safely, with no data loss.

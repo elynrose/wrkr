@@ -5,16 +5,17 @@ const { authenticate } = require('../middleware/auth');
 
 // GET /api/notifications — user's notifications
 router.get('/', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { unread, limit = 30 } = req.query;
   try {
-    let query = 'SELECT * FROM notifications WHERE user_id = ?';
-    const params = [req.user.id];
+    let query = 'SELECT * FROM notifications WHERE user_id = ? AND tenant_id = ?';
+    const params = [req.user.id, tid];
     if (unread === 'true') { query += ' AND is_read = FALSE'; }
     query += ' ORDER BY created_at DESC LIMIT ?';
     params.push(parseInt(limit));
 
     const [rows] = await db.query(query, params);
-    const [[{ cnt }]] = await db.query('SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = FALSE', [req.user.id]);
+    const [[{ cnt }]] = await db.query('SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND tenant_id = ? AND is_read = FALSE', [req.user.id, tid]);
     res.json({ notifications: rows, unreadCount: cnt });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -42,11 +43,11 @@ router.post('/read-all', authenticate, async (req, res) => {
 });
 
 // Utility: create a notification (used internally)
-async function createNotification(userId, type, title, body, link) {
+async function createNotification(userId, type, title, body, link, tenantId = 1) {
   try {
     await db.query(
-      'INSERT INTO notifications (user_id, type, title, body, link) VALUES (?,?,?,?,?)',
-      [userId, type, title, body, link]
+      'INSERT INTO notifications (tenant_id, user_id, type, title, body, link) VALUES (?,?,?,?,?,?)',
+      [tenantId, userId, type, title, body, link]
     );
   } catch (err) {
     console.error('Create notification error:', err);

@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "test-sms": "node scripts/test-sms.js"
+    "test-sms": "node scripts/test-sms.js",
+    "migrate:multitenancy": "node migrate-multitenancy.js"
   },
   "keywords": [],
   "author": "",

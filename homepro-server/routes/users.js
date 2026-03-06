@@ -6,20 +6,21 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 // GET /api/users — admin: list all users (consumers + providers/pros)
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { role, page = 1, limit = 200 } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   try {
     let query = `SELECT u.id, u.email, u.role, u.first_name, u.last_name, u.phone, u.is_active, u.email_verified, u.last_login, u.created_at,
                         p.id AS pro_id, p.lead_credits, p.subscription_plan, p.business_name
-                 FROM users u LEFT JOIN pros p ON p.user_id = u.id WHERE 1=1`;
-    const params = [];
+                 FROM users u LEFT JOIN pros p ON p.user_id = u.id WHERE u.tenant_id = ?`;
+    const params = [tid];
     if (role && role !== 'all') { query += ' AND u.role = ?'; params.push(role); }
     query += ' ORDER BY u.created_at DESC LIMIT ? OFFSET ?';
     params.push(parseInt(limit), offset);
 
     const [rows] = await db.query(query, params);
-    let countQuery = 'SELECT COUNT(*) as total FROM users WHERE 1=1';
-    const countParams = [];
+    let countQuery = 'SELECT COUNT(*) as total FROM users WHERE tenant_id = ?';
+    const countParams = [tid];
     if (role && role !== 'all') { countQuery += ' AND role = ?'; countParams.push(role); }
     const [[{ total }]] = await db.query(countQuery, countParams);
     res.json({ users: rows, total, page: parseInt(page), limit: parseInt(limit) });
@@ -91,19 +92,20 @@ router.patch('/:id/status', authenticate, requireRole('admin'), async (req, res)
 
 // POST /api/users — admin: create user (consumer, pro, or admin)
 router.post('/', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { email, password, role, firstName, lastName, phone } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const validRoles = ['consumer', 'pro', 'admin'];
   const userRole = validRoles.includes(role) ? role : 'consumer';
   try {
-    const [existing] = await db.query('SELECT id FROM users WHERE email = ?', [email]);
+    const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND tenant_id = ?', [email, tid]);
     if (existing.length) return res.status(409).json({ error: 'An account with this email already exists' });
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
-      `INSERT INTO users (email, password_hash, role, first_name, last_name, phone)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [email, hash, userRole, firstName || null, lastName || null, phone || null]
+      `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [tid, email, hash, userRole, firstName || null, lastName || null, phone || null]
     );
     res.status(201).json({ id: result.insertId, email, role: userRole, message: 'User created' });
   } catch (err) {
@@ -114,6 +116,7 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // PUT /api/users/:id — admin: update user
 router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { email, role, firstName, lastName, phone, isActive, newPassword } = req.body;
   const id = req.params.id;
   if (id === req.user.id && role && role !== req.user.role) {
@@ -134,8 +137,8 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
       params.push(hash);
     }
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
-    params.push(id);
-    await db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, params);
+    params.push(id, tid);
+    await db.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
     res.json({ message: 'User updated' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Email already in use' });
@@ -146,10 +149,11 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
 
 // DELETE /api/users/:id — admin: deactivate user (soft delete)
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const id = req.params.id;
   if (parseInt(id) === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
   try {
-    await db.query('UPDATE users SET is_active = FALSE WHERE id = ?', [id]);
+    await db.query('UPDATE users SET is_active = FALSE WHERE id = ? AND tenant_id = ?', [id, tid]);
     res.json({ message: 'User deactivated' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

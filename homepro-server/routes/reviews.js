@@ -15,9 +15,10 @@ router.post('/', authenticate, async (req, res) => {
   try {
     await conn.beginTransaction();
 
+    const tenantId = req.tenant?.id || 1;
     await conn.query(
-      'INSERT INTO reviews (pro_id, user_id, lead_id, rating, title, body, is_verified) VALUES (?,?,?,?,?,?,?)',
-      [proId, req.user.id, leadId || null, rating, title, body, !!leadId]
+      'INSERT INTO reviews (tenant_id, pro_id, user_id, lead_id, rating, title, body, is_verified) VALUES (?,?,?,?,?,?,?,?)',
+      [tenantId, proId, req.user.id, leadId || null, rating, title, body, !!leadId]
     );
 
     const [[agg]] = await conn.query(

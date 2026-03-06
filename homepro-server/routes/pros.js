@@ -12,6 +12,7 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
   const { businessName, ownerName, email, phone, password, services, zips, cities, plan, yearsInBusiness, licenseNumber } = req.body;
   if (!businessName || !email) return res.status(400).json({ error: 'Business name and email are required' });
 
+  const tenantId = req.tenant?.id || 1;
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -20,34 +21,34 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
     const hash = password ? await bcrypt.hash(password, 10) : await bcrypt.hash('changeme123', 10);
     const names = (ownerName || '').split(' ');
     const [userResult] = await conn.query(
-      'INSERT INTO users (email, password_hash, role, first_name, last_name, phone) VALUES (?,?,?,?,?,?)',
-      [email, hash, 'pro', names[0] || null, names.slice(1).join(' ') || null, phone]
+      'INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone) VALUES (?,?,?,?,?,?,?)',
+      [tenantId, email, hash, 'pro', names[0] || null, names.slice(1).join(' ') || null, phone]
     );
     const userId = userResult.insertId;
 
     // Create pro
     const planMap = { 'pay-per-lead': 'starter', 'monthly': 'professional', 'enterprise': 'enterprise' };
     const [proResult] = await conn.query(
-      `INSERT INTO pros (user_id, business_name, phone, years_in_business, license_number, subscription_plan, lead_credits)
-       VALUES (?,?,?,?,?,?,?)`,
-      [userId, businessName, phone, yearsInBusiness, licenseNumber, planMap[plan] || 'free', plan === 'monthly' ? 30 : 10]
+      `INSERT INTO pros (tenant_id, user_id, business_name, phone, years_in_business, license_number, subscription_plan, lead_credits)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [tenantId, userId, businessName, phone, yearsInBusiness, licenseNumber, planMap[plan] || 'free', plan === 'monthly' ? 30 : 10]
     );
     const proId = proResult.insertId;
     const initialCredits = plan === 'monthly' ? 30 : 10;
 
     // Log signup credits
     await conn.query(
-      `INSERT INTO credit_transactions (pro_id, user_id, type, amount, balance_after, description)
-       VALUES (?, ?, 'signup_bonus', ?, ?, ?)`,
-      [proId, userId, initialCredits, initialCredits, `Welcome bonus: ${initialCredits} credits (${planMap[plan] || 'free'} plan)`]
+      `INSERT INTO credit_transactions (tenant_id, pro_id, user_id, type, amount, balance_after, description)
+       VALUES (?, ?, ?, 'signup_bonus', ?, ?, ?)`,
+      [tenantId, proId, userId, initialCredits, initialCredits, `Welcome bonus: ${initialCredits} credits (${planMap[plan] || 'free'} plan)`]
     );
 
     // Services
     if (services?.length) {
       for (const svcName of services) {
-        const [svc] = await conn.query('SELECT id FROM services WHERE name = ? LIMIT 1', [svcName]);
+        const [svc] = await conn.query('SELECT id FROM services WHERE name = ? AND tenant_id = ? LIMIT 1', [svcName, tenantId]);
         if (svc.length) {
-          await conn.query('INSERT IGNORE INTO pro_services (pro_id, service_id) VALUES (?,?)', [proId, svc[0].id]);
+          await conn.query('INSERT IGNORE INTO pro_services (pro_id, service_id, tenant_id) VALUES (?,?,?)', [proId, svc[0].id, tenantId]);
         }
       }
     }
