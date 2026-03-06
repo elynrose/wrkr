@@ -583,6 +583,31 @@ CREATE TABLE IF NOT EXISTS notification_templates (
   UNIQUE KEY uq_tmpl_slug_tenant (slug, tenant_id)
 );
 
+-- Auth: refresh tokens (login sessions)
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT NOT NULL,
+  token       VARCHAR(64) UNIQUE NOT NULL,
+  expires_at  TIMESTAMP NOT NULL,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_token (token),
+  INDEX idx_user (user_id)
+);
+
+-- Auth: password reset tokens
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  user_id     INT NOT NULL,
+  token       VARCHAR(64) UNIQUE NOT NULL,
+  expires_at  TIMESTAMP NOT NULL,
+  used_at     TIMESTAMP NULL,
+  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_token (token),
+  INDEX idx_expires (expires_at)
+);
+
 
 -- ═══════════════════════════════════════════════════════════
 -- SEED DATA

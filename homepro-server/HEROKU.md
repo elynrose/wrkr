@@ -27,9 +27,13 @@ git push heroku master
 
 (Do **not** use `git subtree push` for this. The root `package.json` and `Procfile` run the server and build the frontend with `VITE_API_URL=/api` so the site and API are on the same origin.)
 
-## One-time: run database schema
+## One-time: run database schema (or migrate existing data)
 
-JawsDB gives you an empty database. Load the schema once:
+JawsDB gives you an empty database. Either load the schema and seed data from `schema.sql`, or **migrate your current database**:
+
+- **Migrate existing DB to Heroku:** see **[MIGRATE-DB-TO-HEROKU.md](./MIGRATE-DB-TO-HEROKU.md)**. You run a script locally that copies data from your current MySQL into JawsDB (using `MIGRATE_TARGET_URL` from `heroku config:get JAWSDB_URL`).
+
+If you only need a fresh install, load the schema once:
 
 1. Get the DB URL:
    ```bash
