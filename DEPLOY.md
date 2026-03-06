@@ -22,11 +22,16 @@ This guide covers deploying the **backend** and **frontend** to Railway, plus ad
 
 ## 3. Deploy the backend (API)
 
-1. Click **+ New** → **GitHub Repo** and select your repo (or add a new service from the same repo).
-2. In the new service **Settings**:
-   - **Root Directory**: set to **`homepro-server`** (so Railway runs from that folder).
-   - **Build Command**: leave default (Nixpacks runs `npm install`).
-   - **Start Command**: `npm start` (default; already set in `railway.toml`).
+You can deploy in either of two ways:
+
+**Option A – Deploy from repo root (recommended)**  
+- Do **not** set a Root Directory. Railway will use the root `package.json`, which runs `postinstall` (installs `homepro-server` deps) and `start` (runs the Node server from `homepro-server`). Root `railpack.json` and `railway.toml` tell Railway/Railpack how to build and start.
+
+**Option B – Deploy from `homepro-server` only**  
+- In the new service **Settings**, set **Root Directory** to **`homepro-server`**.  
+- Build and start will run from that folder (`npm install` and `npm start` there).
+
+After adding the service:
 3. **Variables**: add (or link) the following. Railway will auto-inject **`MYSQL_URL`** if you add the MySQL plugin to this service (recommended: use **Variables** → **Add Reference** and pick the MySQL service’s `MYSQL_URL`).
 
    | Variable        | Value / Note |
