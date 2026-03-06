@@ -300,8 +300,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // SPA fallback: serve frontend index.html for non-API GET requests when client dist exists
+// Express 5 path-to-regexp requires named wildcard; '*' alone is invalid
 if (fs.existsSync(clientDist)) {
-  app.get('*', (req, res) => {
+  app.get('/', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+  app.get('/{*splat}', (req, res) => {
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
