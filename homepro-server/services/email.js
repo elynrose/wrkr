@@ -1,3 +1,7 @@
+/**
+ * Email service: SMTP per tenant from settings (email group). When email is disabled or
+ * SMTP not configured, sendEmail logs and returns { mock: true } so callers don't throw.
+ */
 const nodemailer = require('nodemailer');
 const db = require('../db');
 const { getSiteConfig } = require('./siteConfig');

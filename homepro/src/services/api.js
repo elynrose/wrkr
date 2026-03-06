@@ -1,3 +1,4 @@
+/** API base URL: VITE_API_URL at build time (e.g. /api on Heroku) or localhost in dev */
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 // Public fetch (no auth required)

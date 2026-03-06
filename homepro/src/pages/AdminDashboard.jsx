@@ -7,7 +7,7 @@ import {
   faGear, faCubes, faTag, faPlus, faPen, faTrash, faXmark, faPhone,
   faFloppyDisk, faHome, faMagnifyingGlass, faPalette, faFileLines, faEye,
   faBell, faEnvelopeOpenText, faCommentSms, faChartLine, faToggleOn as faToggleOnSolid, faListOl,
-  faChevronLeft, faChevronRight, faBolt,
+  faChevronLeft, faChevronRight, faBolt, faCommentDots,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme, themes as themeMap, fontOptions as fontOptionsMap, borderRadiusOptions as borderRadiusOpts } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -343,6 +343,20 @@ export default function AdminDashboard({ onShowLead }) {
       .catch(() => { setSetupTemplates([]); });
   }, [tab]);
 
+  // Ensure tenant chat settings exist in state when Chat tab is selected (so we can edit/save them)
+  useEffect(() => {
+    if (tab !== 'settings' || settingsSubTab !== 'chat') return;
+    const chatKeys = ['tenant_chat_enabled', 'tenant_chat_personality', 'tenant_chat_reference_info'];
+    const missing = chatKeys.filter(k => !settings.some(s => s.setting_key === k));
+    if (missing.length === 0) return;
+    const defaults = [
+      { setting_key: 'tenant_chat_enabled', setting_value: 'false', setting_type: 'boolean', setting_group: 'chat', label: 'Enable tenant homepage chat' },
+      { setting_key: 'tenant_chat_personality', setting_value: '', setting_type: 'string', setting_group: 'chat', label: 'Chat personality' },
+      { setting_key: 'tenant_chat_reference_info', setting_value: '', setting_type: 'string', setting_group: 'chat', label: 'Reference information' },
+    ];
+    setSettings(ss => [...ss, ...defaults.filter(d => missing.includes(d.setting_key))]);
+  }, [tab, settingsSubTab]);
+
   const loadSteps = () => {
     setStepsLoading(true);
     api.get('/admin/how-it-works')
@@ -556,6 +570,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'twilio',     label: 'Twilio SMS', icon: faPhone },
     { key: 'homepage',   label: 'Homepage',   icon: faHome },
     { key: 'sections',   label: 'Content sections', icon: faListOl },
+    { key: 'chat',       label: 'Tenant homepage chat', icon: faCommentDots },
     { key: 'seo',        label: 'SEO',        icon: faMagnifyingGlass },
     { key: 'analytics',  label: 'Google Analytics', icon: faChartLine },
     { key: 'email',      label: 'Email',      icon: faEnvelope },
@@ -1450,6 +1465,7 @@ export default function AdminDashboard({ onShowLead }) {
               } catch { return false; }
             })();
             const visibleGroups = settingGroups.filter(g => {
+              if (g.key === 'chat') return true;
               if (g.key === 'sections') return settings.some(s => s.setting_key === 'homepage_sections');
               const groupSettings = settings.filter(s => s.setting_group === g.key);
               const displaySettings = g.key === 'homepage'
@@ -1591,8 +1607,10 @@ export default function AdminDashboard({ onShowLead }) {
               : g.key === 'advanced' && !isSuperAdmin
                 ? groupSettings.filter(s => s.setting_key !== 'openai_api_key')
                 : groupSettings;
-            const showCard = g.key === 'sections' ? settings.some(s => s.setting_key === 'homepage_sections') : displaySettings.length > 0;
+            const showCard = g.key === 'chat' || (g.key === 'sections' ? settings.some(s => s.setting_key === 'homepage_sections') : displaySettings.length > 0);
             if (!showCard || g.key !== settingsSubTab) return null;
+            const border = dm ? '#334155' : '#e2e8f0';
+            const inputStyle = { width: '100%', padding: '10px 12px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: dm ? '#1e293b' : '#fff', color: tp, outline: 'none', boxSizing: 'border-box' };
             return (
               <Card key={g.key} id={`settings-section-${g.key}`} dm={dm} style={{ padding: '20px 22px', marginBottom: 16, scrollMarginTop: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1601,7 +1619,18 @@ export default function AdminDashboard({ onShowLead }) {
                     {g.label} Settings
                   </h3>
                   <Btn small onClick={async () => {
-                    if (g.key === 'sections') {
+                    if (g.key === 'chat') {
+                      setSaving(true);
+                      const chatSettings = [
+                        { key: 'tenant_chat_enabled', value: getSettingVal('tenant_chat_enabled') || 'false', type: 'boolean', group: 'chat', label: 'Enable tenant homepage chat' },
+                        { key: 'tenant_chat_personality', value: getSettingVal('tenant_chat_personality') || '', type: 'string', group: 'chat', label: 'Chat personality' },
+                        { key: 'tenant_chat_reference_info', value: getSettingVal('tenant_chat_reference_info') || '', type: 'string', group: 'chat', label: 'Reference information' },
+                      ];
+                      await api.put('/settings', { settings: chatSettings });
+                      setSaving(false);
+                      flash('Chat settings saved!');
+                      window.dispatchEvent(new CustomEvent('app:settings-updated'));
+                    } else if (g.key === 'sections') {
                       const sec = settings.find(s => s.setting_key === 'homepage_sections');
                       if (sec) {
                         setSaving(true);
@@ -1617,7 +1646,43 @@ export default function AdminDashboard({ onShowLead }) {
                     <FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}
                   </Btn>
                 </div>
-                {g.key === 'sections' ? (
+                {g.key === 'chat' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                    <p style={{ fontSize: 13, color: ts, margin: 0 }}>
+                      Show a floating chat on your tenant homepage. The AI uses the personality and reference info below to help visitors and can collect a service request that routes as a lead.
+                    </p>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={getSettingVal('tenant_chat_enabled') === 'true' || getSettingVal('tenant_chat_enabled') === '1'}
+                        onChange={(e) => updateSetting('tenant_chat_enabled', e.target.checked ? 'true' : 'false')}
+                      />
+                      <span style={{ fontSize: 14, fontWeight: 600, color: tp }}>Enable chat on tenant homepage</span>
+                    </label>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Personality</label>
+                      <textarea
+                        rows={4}
+                        placeholder="e.g. You are a friendly assistant for [Company]. You help visitors request quotes for plumbing, HVAC, and electrical. Keep replies short and warm."
+                        value={getSettingVal('tenant_chat_personality') || ''}
+                        onChange={(e) => updateSetting('tenant_chat_personality', e.target.value)}
+                        style={{ ...inputStyle, resize: 'vertical', minHeight: 90 }}
+                      />
+                      <p style={{ fontSize: 11, color: ts, marginTop: 4 }}>First line can be used as the chat label on the widget.</p>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Reference information</label>
+                      <textarea
+                        rows={5}
+                        placeholder="e.g. We serve Austin, Round Rock, Cedar Park. We offer 24/7 emergency service. Our pros are licensed and insured. Pricing starts at $X for..."
+                        value={getSettingVal('tenant_chat_reference_info') || ''}
+                        onChange={(e) => updateSetting('tenant_chat_reference_info', e.target.value)}
+                        style={{ ...inputStyle, resize: 'vertical', minHeight: 100 }}
+                      />
+                      <p style={{ fontSize: 11, color: ts, marginTop: 4 }}>Facts the AI can use when answering (not shown to visitors).</p>
+                    </div>
+                  </div>
+                ) : g.key === 'sections' ? (
                   (() => {
                     const s = settings.find(x => x.setting_key === 'homepage_sections');
                     if (!s) return null;

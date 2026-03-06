@@ -1,3 +1,7 @@
+/**
+ * Twilio SMS per tenant from settings (twilio group) or env. When not configured or disabled,
+ * sendSMS logs and returns { sid: 'MOCK_...', mock: true } so matching/notifications don't throw.
+ */
 const twilio = require('twilio');
 const db = require('../db');
 

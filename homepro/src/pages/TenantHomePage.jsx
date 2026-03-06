@@ -8,6 +8,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { getIcon } from '../lib/icons';
 import { themes as themeMap } from '../context/ThemeContext';
+import TenantChatWidget from '../components/TenantChatWidget';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
@@ -87,8 +88,20 @@ export default function TenantHomePage({ slug, onNavigate }) {
   const supportPhone = settings.support_phone || '';
   const siteUrl = tenant.domain ? `https://${tenant.domain}` : null;
 
-  const openRequest = (initialService = '', initialZip = '') => {
-    setRequestInitial({ service: initialService, zip: initialZip });
+  const openRequest = (first, second) => {
+    const initial = (typeof first === 'object' && first !== null && second === undefined)
+      ? first
+      : { service: typeof first === 'string' ? first : '', zip: typeof second === 'string' ? second : '' };
+    setRequestInitial({
+      service: initial.service || '',
+      zip: initial.zip || '',
+      city: initial.city || '',
+      description: initial.description || '',
+      urgency: initial.urgency || '',
+      name: initial.name || '',
+      email: initial.email || '',
+      phone: initial.phone || '',
+    });
     setShowRequestModal(true);
   };
 
@@ -110,6 +123,16 @@ export default function TenantHomePage({ slug, onNavigate }) {
           siteName={siteName}
           onClose={() => setShowRequestModal(false)}
           initialData={requestInitial}
+        />
+      )}
+
+      {data.chat?.enabled && (
+        <TenantChatWidget
+          slug={slug}
+          siteName={siteName}
+          label={data.chat.label || 'Chat with us'}
+          primary={primary}
+          onOpenRequestModal={openRequest}
         />
       )}
     </div>

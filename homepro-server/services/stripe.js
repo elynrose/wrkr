@@ -1,3 +1,7 @@
+/**
+ * Stripe client per tenant. Key from settings (stripe_secret_key) or env STRIPE_SECRET_KEY.
+ * getStripe() returns null when no key is set; callers must check and return 503 or skip payment flows.
+ */
 const db = require('../db');
 
 const stripeByTenant = new Map();

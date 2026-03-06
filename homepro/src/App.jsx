@@ -1,3 +1,7 @@
+/**
+ * Root app: hash-based routing (home, login, admin, claim, review, cms, tenant, etc.),
+ * Stripe redirect handling (?checkout=success, ?credits=success), and role-based redirect after login.
+ */
 import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheckCircle, faXmark, faSpinner } from '@fortawesome/free-solid-svg-icons';

@@ -1,3 +1,8 @@
+/**
+ * HomePro API server.
+ * Serves REST API under /api/* and, when client dist exists, the React SPA (Vite build).
+ * Multi-tenant: tenant resolved per request via middleware (hostname/custom_domain).
+ */
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');

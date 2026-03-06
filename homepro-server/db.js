@@ -1,3 +1,7 @@
+/**
+ * Database connection pool. Uses JAWSDB_URL or DATABASE_URL on Heroku when set,
+ * otherwise falls back to DB_HOST, DB_USER, DB_PASSWORD, DB_NAME from .env.
+ */
 const mysql = require('mysql2/promise');
 require('dotenv').config();
 

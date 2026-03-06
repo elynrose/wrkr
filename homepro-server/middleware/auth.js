@@ -1,3 +1,7 @@
+/**
+ * JWT auth: generateToken, authenticate (required), requireRole, optionalAuth.
+ * On localhost, authenticate binds req.tenant to the user's tenant for admin testing.
+ */
 const jwt = require('jsonwebtoken');
 const db  = require('../db');
 

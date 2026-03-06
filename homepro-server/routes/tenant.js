@@ -57,6 +57,21 @@ router.get('/:slug/public', async (req, res) => {
     const settings = {};
     for (const r of settingsRows) settings[r.setting_key] = r.setting_value;
 
+    // Tenant homepage chat: enabled + optional label (personality not exposed to client)
+    const [chatRows] = await db.query(
+      `SELECT setting_key, setting_value FROM settings 
+       WHERE tenant_id = ? AND setting_key IN ('tenant_chat_enabled', 'tenant_chat_personality')`,
+      [tid]
+    );
+    const chatMap = {};
+    for (const r of chatRows) chatMap[r.setting_key] = r.setting_value;
+    const chatEnabled = chatMap.tenant_chat_enabled === 'true' || chatMap.tenant_chat_enabled === '1';
+    const chatPersonality = (chatMap.tenant_chat_personality || '').trim();
+    // First line or first 60 chars of personality as widget label
+    const chatLabel = chatPersonality
+      ? (chatPersonality.split('\n')[0] || chatPersonality).slice(0, 60)
+      : 'Chat with us';
+
     let selectedCategoryIds = [];
     try {
       const raw = settings.home_page_category_ids;
@@ -116,6 +131,7 @@ router.get('/:slug/public', async (req, res) => {
     res.json({
       tenant: { id: tid, name: tenant.name, slug: tenant.slug, domain: tenant.custom_domain },
       settings,
+      chat: chatEnabled ? { enabled: true, label: chatLabel } : { enabled: false },
       categories: filteredCategories.map(c => ({
         ...c,
         services: filteredServices.filter(s => s.category_id === c.id),
@@ -131,6 +147,45 @@ router.get('/:slug/public', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /tenant/:slug/public error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/tenant/:slug/chat — public: AI chat for tenant homepage (routes to lead when ready)
+router.post('/:slug/chat', async (req, res) => {
+  try {
+    const [tenants] = await db.query(
+      "SELECT id, name FROM tenants WHERE slug = ? AND status = 'active' LIMIT 1",
+      [req.params.slug]
+    );
+    if (!tenants.length) return res.status(404).json({ error: 'Tenant not found' });
+    const tenant = tenants[0];
+    const tenantId = tenant.id;
+    const { getTenantChatSettings, chat: tenantChat } = require('../services/tenantChat');
+    const chatSettings = await getTenantChatSettings(tenantId);
+    if (!chatSettings.enabled) return res.status(400).json({ error: 'Chat is not enabled for this tenant' });
+
+    const apiKey = await require('../services/openaiSetup').getOpenAIKey(db);
+    if (!apiKey || !apiKey.trim()) {
+      return res.status(503).json({ error: 'Chat is temporarily unavailable. Please try the request form instead.' });
+    }
+
+    const { messages } = req.body;
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: 'messages array is required' });
+    }
+
+    const { reply, suggestedLead } = await tenantChat(
+      apiKey,
+      chatSettings.personality,
+      chatSettings.referenceInfo,
+      tenant.name,
+      messages
+    );
+
+    res.json({ reply, suggestedLead: suggestedLead || undefined });
+  } catch (err) {
+    console.error('POST /tenant/:slug/chat error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
