@@ -8,7 +8,7 @@ const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 export default function RecentReviews() {
   const { darkMode: dm } = useTheme();
-  const { siteName } = useSettings();
+  const { siteName, settings } = useSettings();
   const [reviews, setReviews] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -17,6 +17,8 @@ export default function RecentReviews() {
   const cardBg = dm ? '#111827' : '#fff';
   const border = dm ? '#1f2937' : '#e5e7eb';
   const sectionBg = dm ? '#0b1220' : '#f8fafc';
+
+  const sampleReviews = Array.isArray(settings?.homepage_sample_reviews) ? settings.homepage_sample_reviews : null;
 
   const fetchReviews = (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -28,14 +30,28 @@ export default function RecentReviews() {
   };
 
   useEffect(() => {
-    fetchReviews(true);
-  }, []);
+    if (sampleReviews && sampleReviews.length > 0) {
+      setReviews(sampleReviews.map(r => ({
+        first_name: r.customer_name || 'Customer',
+        service_name: r.service_name || 'Home Service',
+        rating: typeof r.rating === 'number' ? r.rating : 5,
+        title: r.title || '',
+        body: r.body || '',
+        business_name: siteName,
+        created_at: new Date().toISOString(),
+      })));
+      setLoading(false);
+    } else {
+      fetchReviews(true);
+    }
+  }, [sampleReviews?.length, siteName]);
 
   useEffect(() => {
+    if (sampleReviews?.length) return;
     const handler = () => fetchReviews(false);
     window.addEventListener('app:data-updated', handler);
     return () => window.removeEventListener('app:data-updated', handler);
-  }, []);
+  }, [sampleReviews?.length]);
 
   if (loading || reviews.length === 0) return null;
 

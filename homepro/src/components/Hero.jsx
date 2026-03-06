@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faMagnifyingGlass, faLocationDot, faShieldHalved,
-  faBan, faStar, faBolt,
+  faBan, faStar, faBolt, faRocket,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useSettings } from '../context/SettingsContext';
 
 const SUGGESTIONS = [
   'Handyperson', 'Plumbing', 'Electrical', 'HVAC', 'Landscaping',
@@ -20,12 +21,14 @@ const TRUST = [
   { icon: faBolt,        text: 'Same-day matching' },
 ];
 
-export default function Hero({ onConsumerSignup, services = [] }) {
+export default function Hero({ onConsumerSignup, onBookDemo, services = [] }) {
   const { darkMode } = useTheme();
+  const { settings } = useSettings();
   const [service, setService] = useState('');
   const [zip, setZip] = useState('');
   const [suggestions, setSuggestions] = useState([]);
 
+  const isMarketing = settings?.hero_headline;
   const allSuggestions = services.length
     ? services.map(s => s.name)
     : SUGGESTIONS;
@@ -44,46 +47,97 @@ export default function Hero({ onConsumerSignup, services = [] }) {
     if (service) onConsumerSignup({ service, zip });
   };
 
-  return (
-    <section
-      style={{
-        background: darkMode
-          ? 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)'
-          : 'linear-gradient(135deg, var(--color-primary-light) 0%, #ffffff 50%, #eff6ff 100%)',
-        padding: '80px 16px',
-      }}
-    >
-      <div style={{ maxWidth: '56rem', margin: '0 auto', textAlign: 'center' }}>
+  const sectionStyle = {
+    background: darkMode
+      ? 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)'
+      : 'linear-gradient(135deg, var(--color-primary-light) 0%, #ffffff 50%, #eff6ff 100%)',
+    padding: '80px 16px',
+  };
 
-        {/* Badge */}
-        <div
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px',
-            padding: '6px 16px', borderRadius: '9999px', fontSize: '14px',
-            fontWeight: 600, color: '#fff', marginBottom: '24px',
-            backgroundColor: 'var(--color-primary)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
-          }}
-        >
+  const badgeStyle = {
+    display: 'inline-flex', alignItems: 'center', gap: '8px',
+    padding: '6px 16px', borderRadius: '9999px', fontSize: '14px',
+    fontWeight: 600, color: '#fff', marginBottom: '24px',
+    backgroundColor: 'var(--color-primary)', boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+  };
+
+  const h1Style = {
+    fontSize: 'clamp(2.25rem, 5vw, 3.75rem)', fontWeight: 800,
+    color: darkMode ? '#fff' : '#111827', lineHeight: 1.1, marginBottom: '16px',
+  };
+
+  const pStyle = {
+    fontSize: '1.125rem', color: darkMode ? '#9ca3af' : '#4b5563',
+    marginBottom: '40px', maxWidth: '42rem', margin: '0 auto 40px',
+  };
+
+  if (isMarketing) {
+    return (
+      <section style={sectionStyle}>
+        <div style={{ maxWidth: '56rem', margin: '0 auto', textAlign: 'center' }}>
+          <div style={badgeStyle}>
+            <FontAwesomeIcon icon={faRocket} style={{ fontSize: 12 }} />
+            Lead-generation platform for local home services
+          </div>
+          <h1 style={h1Style}>
+            {settings.hero_headline}
+          </h1>
+          <p style={pStyle}>
+            {settings.hero_subheadline}
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center', marginBottom: 24 }}>
+            <button
+              type="button"
+              onClick={() => onConsumerSignup && onConsumerSignup({})}
+              style={{
+                padding: '14px 28px', fontSize: 16, fontWeight: 700, color: '#fff',
+                backgroundColor: 'var(--color-primary)', borderRadius: 'var(--border-radius)',
+                border: 'none', cursor: 'pointer', boxShadow: '0 4px 12px rgba(26,111,219,0.3)',
+              }}
+            >
+              {settings.hero_cta_primary || 'Get Started'}
+            </button>
+            {settings.hero_cta_secondary && (
+              <button
+                type="button"
+                onClick={() => onBookDemo && onBookDemo()}
+                style={{
+                  padding: '14px 28px', fontSize: 16, fontWeight: 600,
+                  backgroundColor: 'transparent', color: 'var(--color-primary)',
+                  border: '2px solid var(--color-primary)', borderRadius: 'var(--border-radius)',
+                  cursor: 'pointer',
+                }}
+              >
+                {settings.hero_cta_secondary}
+              </button>
+            )}
+          </div>
+          {settings.hero_support_text && (
+            <p style={{ fontSize: 14, color: darkMode ? '#9ca3af' : '#6b7280', maxWidth: '36rem', margin: '0 auto' }}>
+              {settings.hero_support_text}
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section style={sectionStyle}>
+      <div style={{ maxWidth: '56rem', margin: '0 auto', textAlign: 'center' }}>
+        <div style={badgeStyle}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#86efac', display: 'inline-block' }} />
           50,000+ vetted pros ready to help
         </div>
-
-        <h1 style={{
-          fontSize: 'clamp(2.25rem, 5vw, 3.75rem)', fontWeight: 800,
-          color: darkMode ? '#fff' : '#111827', lineHeight: 1.1, marginBottom: '16px',
-        }}>
+        <h1 style={h1Style}>
           Find trusted local pros{' '}
           <span style={{ color: 'var(--color-primary)' }}>in minutes</span>
         </h1>
-        <p style={{
-          fontSize: '1.125rem', color: darkMode ? '#9ca3af' : '#4b5563',
-          marginBottom: '40px', maxWidth: '42rem', margin: '0 auto 40px',
-        }}>
+        <p style={pStyle}>
           Describe your project, enter your ZIP code, and get matched with verified
           professionals who compete for your business.
         </p>
 
-        {/* Search card */}
         <form
           onSubmit={handleSubmit}
           style={{

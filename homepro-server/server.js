@@ -1,9 +1,17 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+const path   = require('path');
+const fs     = require('fs');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
+
+// When deployed with frontend (e.g. full-stack Heroku from repo root), serve Vite build
+const clientDist = path.join(__dirname, '..', 'homepro', 'dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+}
 
 // ── Middleware ───────────────────────────────────────────────
 // Multi-tenant: allow any origin (each tenant uses their own domain)
@@ -51,6 +59,33 @@ const { getSiteConfig } = require('./services/siteConfig');
 
 // Auth router first (so /api/auth/* matches before other /api routes)
 app.use('/api/auth', require('./routes/auth'));
+
+// All /api/settings/* routes that must work: register HERE before app.use('/api/settings', settingsRouter)
+const settingsRouter = require('./routes/settings');
+
+app.post('/api/settings/test-openai', authenticate, requireRole('admin'), (req, res, next) => {
+  if (typeof settingsRouter.handleTestOpenai === 'function') {
+    return Promise.resolve(settingsRouter.handleTestOpenai(req, res)).catch(next);
+  }
+  res.status(500).json({ error: 'Server error' });
+});
+
+app.get('/api/settings/setup-templates', (req, res) => {
+  try {
+    const list = settingsRouter.listSetupTemplates ? settingsRouter.listSetupTemplates() : [];
+    res.json(list);
+  } catch (err) {
+    console.error('GET /api/settings/setup-templates error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/settings/setup-chat', authenticate, requireRole('admin'), (req, res, next) => {
+  if (typeof settingsRouter.handleSetupChat === 'function') {
+    return Promise.resolve(settingsRouter.handleSetupChat(req, res)).catch(next);
+  }
+  res.status(500).json({ error: 'Server error' });
+});
 
 // Admin how-it-works (explicit path so it always matches)
 app.get('/api/admin/how-it-works', authenticate, requireRole('admin'), async (req, res) => {
@@ -169,7 +204,7 @@ app.use('/api/subscriptions',   require('./routes/subscriptions'));
 app.use('/api/reviews',         require('./routes/reviews'));
 app.use('/api/notifications',   require('./routes/notifications'));
 app.use('/api/messages',        require('./routes/messages'));
-app.use('/api/settings',        require('./routes/settings'));
+app.use('/api/settings',        settingsRouter);
 app.use('/api/templates',       require('./routes/templates'));
 app.use('/api/pages',           require('./routes/pages'));
 app.use('/api/matching',        require('./routes/matching'));
@@ -264,7 +299,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 404
+// SPA fallback: serve frontend index.html for non-API GET requests when client dist exists
+if (fs.existsSync(clientDist)) {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
+// 404 (only hit when not serving frontend)
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
 });

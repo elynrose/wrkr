@@ -41,3 +41,15 @@ html { scroll-behavior: smooth; }
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* Marketing section step cards: 4 columns on large screens */
+.marketing-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 24px;
+}
+@media (min-width: 900px) {
+  .marketing-steps-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}

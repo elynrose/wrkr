@@ -7,11 +7,12 @@ import {
   faGear, faCubes, faTag, faPlus, faPen, faTrash, faXmark, faPhone,
   faFloppyDisk, faHome, faMagnifyingGlass, faPalette, faFileLines, faEye,
   faBell, faEnvelopeOpenText, faCommentSms, faChartLine, faToggleOn as faToggleOnSolid, faListOl,
-  faChevronLeft, faChevronRight,
+  faChevronLeft, faChevronRight, faBolt,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme, themes as themeMap, fontOptions as fontOptionsMap, borderRadiusOptions as borderRadiusOpts } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import RichTextEditor from '../components/RichTextEditor';
+import AISetupChatWidget from '../components/AISetupChatWidget';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const getToken = () => localStorage.getItem('hp_token');
@@ -170,6 +171,22 @@ export default function AdminDashboard({ onShowLead }) {
   const [testEmailResult, setTestEmailResult] = useState(null);
   const [testStripeSending, setTestStripeSending] = useState(false);
   const [testStripeResult, setTestStripeResult] = useState(null);
+  const [testOpenaiSending, setTestOpenaiSending] = useState(false);
+  const [testOpenaiResult, setTestOpenaiResult] = useState(null);
+
+  // One-click setup templates
+  const [setupTemplates, setSetupTemplates] = useState([]);
+  const [setupTemplateId, setSetupTemplateId] = useState('');
+  const [setupCustomService, setSetupCustomService] = useState('');
+  const [setupApplying, setSetupApplying] = useState(false);
+  // AI setup chat
+  const [setupChatMessages, setSetupChatMessages] = useState([]);
+  const [setupChatInput, setSetupChatInput] = useState('');
+  const [setupChatLoading, setSetupChatLoading] = useState(false);
+  const [setupChatApplying, setSetupChatApplying] = useState(false);
+
+  // Settings sub-tab (Quick setup, General, Homepage, etc.)
+  const [settingsSubTab, setSettingsSubTab] = useState('setup');
 
   // Users sub-tab (superadmin gets a Tenants sub-tab)
   const [usersSubTab, setUsersSubTab] = useState('list');
@@ -187,6 +204,7 @@ export default function AdminDashboard({ onShowLead }) {
   const [tenantSlug, setTenantSlug] = useState('default');
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
+  const isSuperAdmin = user?.role === 'superadmin';
 
   useEffect(() => {
     const roleParam = userRoleFilter && userRoleFilter !== 'all' ? `&role=${userRoleFilter}` : '';
@@ -252,9 +270,9 @@ export default function AdminDashboard({ onShowLead }) {
       .catch(() => {});
   }, [tab, usersPage, userRoleFilter, usersTenantFilter]);
 
-  // Reset tab if non-superadmin has a superadmin-only tab selected (Categories, Pages, Templates)
+  // Reset tab if non-superadmin has a superadmin-only tab selected (Categories, Templates)
   useEffect(() => {
-    if (user?.role !== 'superadmin' && ['categories', 'pages', 'templates'].includes(tab)) {
+    if (user?.role !== 'superadmin' && ['categories', 'templates'].includes(tab)) {
       setTab('overview');
     }
   }, [user?.role, tab]);
@@ -294,9 +312,10 @@ export default function AdminDashboard({ onShowLead }) {
       .catch(() => {});
   }, [tab, usersSubTab, tenantsPage]);
 
-  // Load steps when Pages > Homepage Steps sub-tab is opened
+  // Load steps when Pages tab is opened (for superadmin: only when Steps sub-tab; for tenant admin: always)
   useEffect(() => {
-    if (tab !== 'pages' || pagesSubTab !== 'steps') return;
+    if (tab !== 'pages') return;
+    if (isSuperAdmin && pagesSubTab !== 'steps') return;
     if (steps.length > 0) return; // already have data
     setStepsLoading(true);
     api.get('/admin/how-it-works')
@@ -306,7 +325,23 @@ export default function AdminDashboard({ onShowLead }) {
       })
       .catch(() => flash('Failed to load steps'))
       .finally(() => setStepsLoading(false));
-  }, [tab, pagesSubTab]);
+  }, [tab, pagesSubTab, isSuperAdmin]);
+
+  // Load setup templates when Settings tab is opened
+  useEffect(() => {
+    if (tab !== 'settings') return;
+    api.get('/settings/setup-templates')
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setSetupTemplates(data);
+          if (data.length && !setupTemplateId) setSetupTemplateId(data[0].id ?? '');
+        } else if (data?.error) {
+          setSetupTemplates([]);
+          flash('Templates: ' + (data.error || 'failed to load'));
+        }
+      })
+      .catch(() => { setSetupTemplates([]); });
+  }, [tab]);
 
   const loadSteps = () => {
     setStepsLoading(true);
@@ -489,7 +524,6 @@ export default function AdminDashboard({ onShowLead }) {
   const tp = dm ? '#f1f5f9' : '#1e293b';
   const ts = dm ? '#94a3b8' : '#64748b';
 
-  const isSuperAdmin = user?.role === 'superadmin';
   const tabs = [
     { key: 'overview',    label: 'Overview',    icon: faShieldHalved },
     { key: 'users',       label: 'Users',       icon: faUsers },
@@ -498,7 +532,7 @@ export default function AdminDashboard({ onShowLead }) {
     ...(isSuperAdmin ? [{ key: 'categories',  label: 'Categories',  icon: faTag }] : []),
     { key: 'services',    label: 'Services',    icon: faLayerGroup },
     { key: 'reviews',     label: 'Reviews',     icon: faStar },
-    ...(isSuperAdmin ? [{ key: 'pages',       label: 'Pages',       icon: faFileLines }] : []),
+    { key: 'pages',       label: 'Pages',       icon: faFileLines },
     ...(isSuperAdmin ? [{ key: 'templates',   label: 'Templates',   icon: faBell }] : []),
     { key: 'settings',    label: 'Settings',    icon: faGear },
   ];
@@ -521,6 +555,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'stripe',     label: 'Stripe',     icon: faGear },
     { key: 'twilio',     label: 'Twilio SMS', icon: faPhone },
     { key: 'homepage',   label: 'Homepage',   icon: faHome },
+    { key: 'sections',   label: 'Content sections', icon: faListOl },
     { key: 'seo',        label: 'SEO',        icon: faMagnifyingGlass },
     { key: 'analytics',  label: 'Google Analytics', icon: faChartLine },
     { key: 'email',      label: 'Email',      icon: faEnvelope },
@@ -1090,8 +1125,9 @@ export default function AdminDashboard({ onShowLead }) {
         </>}
 
         {/* ══════════ PAGES (CMS + Homepage Steps) ══════════ */}
-        {tab === 'pages' && isSuperAdmin && <>
-          {/* Sub-menu: CMS Pages | Homepage Steps */}
+        {tab === 'pages' && <>
+          {/* Sub-menu: CMS Pages | Homepage Steps (superadmin only); tenant admins see only Steps */}
+          {isSuperAdmin && (
           <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: dm ? '#111827' : '#e2e8f0', borderRadius: 'var(--border-radius)', padding: 4, border: `1px solid ${border}` }}>
             {pagesSubTabs.map(st => (
               <button key={st.key} onClick={() => setPagesSubTab(st.key)} style={{
@@ -1102,8 +1138,9 @@ export default function AdminDashboard({ onShowLead }) {
               }}><FontAwesomeIcon icon={st.icon} style={{ fontSize: 11 }} />{st.label}</button>
             ))}
           </div>
+          )}
 
-          {pagesSubTab === 'list' && <>
+          {isSuperAdmin && pagesSubTab === 'list' && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>CMS Pages ({pages.length})</h3>
             <Btn onClick={() => setEditPage({ slug: '', title: '', content: '', metaTitle: '', metaDesc: '', status: 'draft', showInNav: true, navOrder: pages.length + 1, navGroup: 'company' })}><FontAwesomeIcon icon={faPlus} />New Page</Btn>
@@ -1193,11 +1230,11 @@ export default function AdminDashboard({ onShowLead }) {
           </Card>
           </>}
 
-          {pagesSubTab === 'steps' && <>
+          {(pagesSubTab === 'steps' || !isSuperAdmin) && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
             <div>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Homepage “How it works” steps</h3>
-              <p style={{ fontSize: 13, color: ts, marginTop: 4 }}>Edit the steps shown for homeowners and for professionals on the homepage. The same content is shown on the main site.</p>
+              <p style={{ fontSize: 13, color: ts, marginTop: 4 }}>Edit the steps shown for homeowners and for professionals on your tenant homepage.</p>
             </div>
             <Btn onClick={loadSteps} disabled={stepsLoading} variant="ghost" small>
               {stepsLoading ? <><FontAwesomeIcon icon={faSpinner} spin /> Loading…</> : <>Refresh</>}
@@ -1402,79 +1439,160 @@ export default function AdminDashboard({ onShowLead }) {
 
         {/* ══════════ SETTINGS ══════════ */}
         {tab === 'settings' && <>
-          {/* Fixed floating menu for settings sections (mobile-friendly) */}
+          {/* Settings section tabs */}
           {(() => {
-            const visibleGroups = settingGroups.filter(g => settings.some(s => s.setting_group === g.key));
-            if (visibleGroups.length === 0) return null;
+            const hasDynamicSections = (() => {
+              try {
+                const v = settings.find(s => s.setting_key === 'homepage_sections')?.setting_value;
+                if (v == null) return false;
+                const arr = typeof v === 'string' ? JSON.parse(v) : v;
+                return Array.isArray(arr) && arr.length > 0;
+              } catch { return false; }
+            })();
+            const visibleGroups = settingGroups.filter(g => {
+              if (g.key === 'sections') return settings.some(s => s.setting_key === 'homepage_sections');
+              const groupSettings = settings.filter(s => s.setting_group === g.key);
+              const displaySettings = g.key === 'homepage'
+                ? groupSettings.filter(s => {
+                    if (s.setting_key === 'homepage_sections') return false;
+                    if (!hasDynamicSections) return true;
+                    if (/^show_section[2-7]$/.test(s.setting_key)) return false;
+                    if (/^section[2-7]_(headline|body|list|steps)$/.test(s.setting_key)) return false;
+                    return true;
+                  })
+                : g.key === 'advanced' && !isSuperAdmin
+                  ? groupSettings.filter(s => s.setting_key !== 'openai_api_key')
+                  : groupSettings;
+              return displaySettings.length > 0;
+            });
+            const settingsTabs = [{ key: 'setup', label: 'Quick setup', icon: faBolt }, ...visibleGroups];
             return (
-              <div
-                style={{
-                  position: 'fixed',
-                  bottom: 16,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  zIndex: 100,
-                  width: '100%',
-                  maxWidth: 'min(480px, calc(100vw - 32px))',
-                  background: dm ? 'rgba(15, 23, 42, 0.97)' : 'rgba(255, 255, 255, 0.97)',
-                  backdropFilter: 'saturate(180%) blur(12px)',
-                  WebkitBackdropFilter: 'saturate(180%) blur(12px)',
-                  border: `1px solid ${dm ? '#334155' : 'rgba(0,0,0,0.08)'}`,
-                  borderRadius: 9999,
-                  boxShadow: dm ? '0 4px 24px rgba(0,0,0,0.4)' : '0 4px 24px rgba(0,0,0,0.12)',
-                  padding: '8px 12px',
-                  overflowX: 'auto',
-                  overflowY: 'hidden',
-                  display: 'flex',
-                  gap: 6,
-                  alignItems: 'center',
-                  scrollbarWidth: 'none',
-                  msOverflowStyle: 'none',
-                }}
-                className="settings-floating-menu"
-              >
-                {visibleGroups.map(g => (
-                  <a
-                    key={g.key}
-                    href={`#settings-section-${g.key}`}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      document.getElementById(`settings-section-${g.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }}
-                    style={{
-                      flexShrink: 0,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      padding: '8px 14px',
-                      borderRadius: 9999,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: ts,
-                      background: 'transparent',
-                      textDecoration: 'none',
-                      whiteSpace: 'nowrap',
-                      transition: 'background 0.15s, color 0.15s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = dm ? 'rgba(51, 65, 85, 0.6)' : 'rgba(0,0,0,0.06)';
-                      e.currentTarget.style.color = tp;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = ts;
-                    }}
-                  >
-                    <FontAwesomeIcon icon={g.icon} style={{ fontSize: 11, opacity: 0.8 }} />
-                    {g.label}
-                  </a>
+              <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: dm ? '#111827' : '#f8fafc', borderRadius: 'var(--border-radius)', padding: 4, border: `1px solid ${border}`, overflowX: 'auto', flexWrap: 'wrap' }}>
+                {settingsTabs.map(st => (
+                  <button key={st.key} onClick={() => setSettingsSubTab(st.key)} style={{
+                    padding: '8px 14px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--border-radius)',
+                    border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+                    background: settingsSubTab === st.key ? 'var(--color-primary)' : 'transparent',
+                    color: settingsSubTab === st.key ? '#fff' : ts,
+                  }}>
+                    <FontAwesomeIcon icon={st.icon} style={{ fontSize: 11 }} />{st.label}
+                  </button>
                 ))}
               </div>
             );
           })()}
+
+          {settingsSubTab === 'setup' && (
+          <Card dm={dm} id="settings-section-setup" style={{ padding: '20px 22px', marginBottom: 16, scrollMarginTop: 24 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp, marginBottom: 8 }}>
+              Quick setup
+            </h3>
+            <p style={{ fontSize: 13, color: ts, marginBottom: 16 }}>
+              Apply a template to populate your homepage content and How it works steps in one click.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+              <div style={{ minWidth: 180 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Template</label>
+                <select
+                  value={setupTemplates.length ? setupTemplateId : ''}
+                  onChange={(e) => setSetupTemplateId(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: 13,
+                    border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`,
+                    borderRadius: 'var(--border-radius)',
+                    background: dm ? '#1e293b' : '#fff',
+                    color: tp,
+                    outline: 'none',
+                  }}
+                >
+                  {!setupTemplates.length && (
+                    <option value="">Loading templates…</option>
+                  )}
+                  {setupTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+              {setupTemplateId === 'custom' && (
+                <div style={{ minWidth: 180 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Your service name</label>
+                  <input
+                    type="text"
+                    value={setupCustomService}
+                    onChange={(e) => setSetupCustomService(e.target.value)}
+                    placeholder="e.g. Landscaping, Pool repair"
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: 13,
+                      border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`,
+                      borderRadius: 'var(--border-radius)',
+                      background: dm ? '#1e293b' : '#fff',
+                      color: tp,
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                </div>
+              )}
+              <Btn
+                onClick={async () => {
+                  if (setupTemplateId === 'custom' && !setupCustomService.trim()) {
+                    flash('Enter a service name for Custom template');
+                    return;
+                  }
+                  if (!confirm('This will replace your current homepage content and How it works steps. Continue?')) return;
+                  setSetupApplying(true);
+                  try {
+                    const body = setupTemplateId === 'custom'
+                      ? { templateId: 'custom', customService: setupCustomService.trim() }
+                      : { templateId: setupTemplateId };
+                    const res = await api.post('/settings/apply-setup-template', body);
+                    flash(res?.message || 'Template applied');
+                    window.dispatchEvent(new CustomEvent('app:settings-updated'));
+                    api.get('/settings/all').then((st) => { if (Array.isArray(st)) setSettings(st); }).catch(() => {});
+                    if (tab === 'pages' || steps.length >= 0) {
+                      api.get('/admin/how-it-works').then((data) => { if (Array.isArray(data)) setSteps(data); }).catch(() => {});
+                    }
+                  } catch (err) {
+                    flash(err?.error || err?.message || 'Failed to apply template');
+                  } finally {
+                    setSetupApplying(false);
+                  }
+                }}
+                disabled={setupApplying || (setupTemplateId === 'custom' && !setupCustomService.trim())}
+              >
+                {setupApplying ? <><FontAwesomeIcon icon={faSpinner} spin /> Applying…</> : 'Apply template'}
+              </Btn>
+            </div>
+          </Card>
+          )}
+
           {settingGroups.map(g => {
             const groupSettings = settings.filter(s => s.setting_group === g.key);
-            if (!groupSettings.length) return null;
+            const hasDynamicSections = (() => {
+              try {
+                const v = settings.find(s => s.setting_key === 'homepage_sections')?.setting_value;
+                if (v == null) return false;
+                const arr = typeof v === 'string' ? JSON.parse(v) : v;
+                return Array.isArray(arr) && arr.length > 0;
+              } catch { return false; }
+            })();
+            const displaySettings = g.key === 'homepage'
+              ? groupSettings.filter(s => {
+                  if (s.setting_key === 'homepage_sections') return false;
+                  if (!hasDynamicSections) return true;
+                  if (/^show_section[2-7]$/.test(s.setting_key)) return false;
+                  if (/^section[2-7]_(headline|body|list|steps)$/.test(s.setting_key)) return false;
+                  return true;
+                })
+              : g.key === 'advanced' && !isSuperAdmin
+                ? groupSettings.filter(s => s.setting_key !== 'openai_api_key')
+                : groupSettings;
+            const showCard = g.key === 'sections' ? settings.some(s => s.setting_key === 'homepage_sections') : displaySettings.length > 0;
+            if (!showCard || g.key !== settingsSubTab) return null;
             return (
               <Card key={g.key} id={`settings-section-${g.key}`} dm={dm} style={{ padding: '20px 22px', marginBottom: 16, scrollMarginTop: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1482,11 +1600,108 @@ export default function AdminDashboard({ onShowLead }) {
                     <FontAwesomeIcon icon={g.icon} style={{ marginRight: 8, opacity: 0.5, fontSize: 13 }} />
                     {g.label} Settings
                   </h3>
-                  <Btn small onClick={() => saveSettings(g.key)} disabled={saving}>
+                  <Btn small onClick={async () => {
+                    if (g.key === 'sections') {
+                      const sec = settings.find(s => s.setting_key === 'homepage_sections');
+                      if (sec) {
+                        setSaving(true);
+                        await api.put('/settings', { settings: [{ key: 'homepage_sections', value: sec.setting_value, type: 'json', group: 'sections', label: 'Homepage sections' }] });
+                        setSaving(false);
+                        flash('Content sections saved!');
+                        window.dispatchEvent(new CustomEvent('app:settings-updated'));
+                      }
+                    } else {
+                      await saveSettings(g.key);
+                    }
+                  }} disabled={saving}>
                     <FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}
                   </Btn>
                 </div>
-                {g.key === 'appearance' ? (
+                {g.key === 'sections' ? (
+                  (() => {
+                    const s = settings.find(x => x.setting_key === 'homepage_sections');
+                    if (!s) return null;
+                    let sections = [];
+                    try { const v = s.setting_value; if (v) sections = typeof v === 'string' ? JSON.parse(v) : (Array.isArray(v) ? v : []); } catch (_) {}
+                    const LAYOUTS = [
+                      { value: 'default', label: 'Default', desc: 'Centered block', preview: 'default' },
+                      { value: 'full', label: 'Full width', desc: 'Edge to edge', preview: 'full' },
+                      { value: 'two-column', label: 'Two column', desc: 'Body + list side by side', preview: 'two-col' },
+                      { value: 'cards', label: 'Cards', desc: 'Steps as cards', preview: 'cards' },
+                      { value: 'narrow', label: 'Narrow', desc: 'Narrow centered', preview: 'narrow' },
+                    ];
+                    const updateSections = (next) => updateSetting('homepage_sections', JSON.stringify(next));
+                    const updateOne = (idx, patch) => { const next = [...sections]; next[idx] = { ...(next[idx] || {}), ...patch }; updateSections(next); };
+                    const removeSection = (idx) => updateSections(sections.filter((_, i) => i !== idx));
+                    const addSection = () => updateSections([...sections, { id: 'sec_' + Date.now(), headline: '', body: '', list: [], steps: null, layout: 'default', visible: true, image: '', imageOverlay: 'black', carousel: false }]);
+                    const border = dm ? '#334155' : '#e2e8f0';
+                    const inputStyle = { width: '100%', padding: '10px 12px', fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: dm ? '#1e293b' : '#fff', color: tp, outline: 'none', boxSizing: 'border-box' };
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                        <p style={{ fontSize: 13, color: ts, margin: 0 }}>Add, remove, and reorder content sections on your homepage. Toggle visibility and choose a layout per section.</p>
+                        {sections.map((sec, idx) => (
+                          <div key={sec.id || idx} style={{ border: `1px solid ${border}`, borderRadius: 12, overflow: 'hidden', background: dm ? '#0f172a' : '#fff' }}>
+                            <div style={{ padding: '14px 18px', background: dm ? 'rgba(51,65,85,0.4)' : 'rgba(0,0,0,0.04)', borderBottom: `1px solid ${border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                              <span style={{ fontSize: 13, fontWeight: 700, color: tp }}>{sec.headline || `Section ${idx + 1}`}</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: ts }}>
+                                  <input type="checkbox" checked={sec.visible !== false} onChange={e => updateOne(idx, { visible: e.target.checked })} />
+                                  Visible
+                                </label>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: ts }}>
+                                  <input type="checkbox" checked={sec.carousel === true} onChange={e => updateOne(idx, { carousel: e.target.checked })} />
+                                  Include in carousel
+                                </label>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {LAYOUTS.map(o => {
+                                    const active = (sec.layout || 'default') === o.value;
+                                    return (
+                                      <button key={o.value} type="button" title={o.desc} onClick={() => updateOne(idx, { layout: o.value })}
+                                        style={{ padding: '8px 10px', border: active ? '2px solid var(--color-primary)' : `1px solid ${border}`, borderRadius: 8, background: active ? (dm ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.1)') : (dm ? '#1e293b' : '#f8fafc'), color: tp, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                          {o.preview === 'two-col' && <><span style={{ width: 12, height: 14, background: 'var(--color-primary)', opacity: 0.8, borderRadius: 2 }} /><span style={{ width: 12, height: 14, background: 'var(--color-primary)', opacity: 0.5, borderRadius: 2 }} /></>}
+                                          {o.preview === 'cards' && <><span style={{ width: 8, height: 10, background: 'var(--color-primary)', opacity: 0.7, borderRadius: 2 }} /><span style={{ width: 8, height: 10, background: 'var(--color-primary)', opacity: 0.7, borderRadius: 2 }} /><span style={{ width: 8, height: 10, background: 'var(--color-primary)', opacity: 0.7, borderRadius: 2 }} /></>}
+                                          {o.preview === 'narrow' && <span style={{ width: 8, height: 14, background: 'var(--color-primary)', opacity: 0.8, borderRadius: 2 }} />}
+                                          {o.preview === 'full' && <span style={{ width: 28, height: 10, background: 'var(--color-primary)', opacity: 0.8, borderRadius: 2 }} />}
+                                          {o.preview === 'default' && <span style={{ width: 20, height: 12, background: 'var(--color-primary)', opacity: 0.8, borderRadius: 2 }} />}
+                                        </span>
+                                        <span style={{ fontSize: 11, fontWeight: 600 }}>{o.label}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <Btn small variant="danger" onClick={() => removeSection(idx)}><FontAwesomeIcon icon={faTrash} /> Remove</Btn>
+                              </div>
+                            </div>
+                            <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                              <input placeholder="Headline" value={sec.headline || ''} onChange={e => updateOne(idx, { headline: e.target.value })} style={inputStyle} />
+                              <textarea placeholder="Body text" rows={3} value={sec.body || ''} onChange={e => updateOne(idx, { body: e.target.value })} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} />
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: ts, marginBottom: 6, display: 'block' }}>Background image URL (optional)</label>
+                                <input placeholder="https://images.pexels.com/photos/..." value={sec.image || ''} onChange={e => updateOne(idx, { image: e.target.value })} style={inputStyle} />
+                                <p style={{ fontSize: 11, color: ts, marginTop: 4 }}>Image is used as section background with an overlay. Choose overlay color so text is readable.</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: ts }}>Overlay:</span>
+                                  {['black', 'white'].map(ov => (
+                                    <label key={ov} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12, color: ts, textTransform: 'capitalize' }}>
+                                      <input type="radio" name={`img-overlay-${idx}`} checked={(sec.imageOverlay || 'black') === ov} onChange={() => updateOne(idx, { imageOverlay: ov })} />
+                                      {ov} ({(ov === 'black' ? 'light' : 'dark')} text)
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 600, color: ts, marginBottom: 6, display: 'block' }}>List items (one per line)</label>
+                                <textarea placeholder="Item 1&#10;Item 2&#10;..." rows={2} value={Array.isArray(sec.list) ? sec.list.join('\n') : ''} onChange={e => updateOne(idx, { list: e.target.value.split('\n').map(x => x.trim()).filter(Boolean) })} style={{ ...inputStyle, resize: 'vertical', marginTop: 4 }} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        <Btn onClick={addSection}><FontAwesomeIcon icon={faPlus} /> Add section</Btn>
+                      </div>
+                    );
+                  })()
+                ) : g.key === 'appearance' ? (
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Color theme</label>
@@ -1553,7 +1768,7 @@ export default function AdminDashboard({ onShowLead }) {
                   </div>
                 ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: g.key === 'homepage' ? '1fr' : '1fr 1fr', gap: '0 16px' }}>
-                  {groupSettings.map(s => (
+                  {displaySettings.map(s => (
                     <div key={s.setting_key} style={{ marginBottom: 14 }}>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>
                         {s.label || s.setting_key}
@@ -1582,6 +1797,28 @@ export default function AdminDashboard({ onShowLead }) {
                                     updateSetting('home_page_category_ids', JSON.stringify(next));
                                   }} />
                                   {cat.name}
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : s.setting_key === 'featured_services' ? (
+                        <div style={{ border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`, borderRadius: 'var(--border-radius)', padding: 12, background: dm ? '#1e293b' : '#f8fafc', maxHeight: 200, overflowY: 'auto' }}>
+                          <p style={{ fontSize: 11, color: ts, marginBottom: 10 }}>Select services to feature on the homepage. Leave all unchecked to show none.</p>
+                          {services.length === 0 ? (
+                            <p style={{ fontSize: 12, color: ts }}>No services yet. Add services under Packages → Services first.</p>
+                          ) : (
+                            services.map(svc => {
+                              let ids = [];
+                              try { ids = JSON.parse(s.setting_value || '[]'); } catch (_) {}
+                              const checked = Array.isArray(ids) && ids.includes(svc.id);
+                              return (
+                                <label key={svc.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: tp, marginBottom: 6 }}>
+                                  <input type="checkbox" checked={checked} onChange={() => {
+                                    const next = checked ? ids.filter(id => id !== svc.id) : [...(Array.isArray(ids) ? ids : []), svc.id];
+                                    updateSetting('featured_services', JSON.stringify(next));
+                                  }} />
+                                  {svc.name}
                                 </label>
                               );
                             })
@@ -1671,6 +1908,24 @@ export default function AdminDashboard({ onShowLead }) {
                     {testStripeResult && <p style={{ fontSize: 12, marginTop: 8, color: testStripeResult.ok ? '#16a34a' : '#ef4444' }}>{testStripeResult.msg}</p>}
                   </div>
                 )}
+                {g.key === 'advanced' && isSuperAdmin && (
+                  <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 600, color: tp, marginBottom: 8 }}>Test OpenAI API key</h4>
+                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Verify the key used by the AI Setup Assistant. Save the key first if you just updated it.</p>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <Btn small onClick={async () => {
+                        setTestOpenaiSending(true); setTestOpenaiResult(null);
+                        try {
+                          const r = await api.post('/settings/test-openai', {});
+                          if (r.error) { setTestOpenaiResult({ ok: false, msg: r.error }); flash(r.error); }
+                          else { setTestOpenaiResult({ ok: true, msg: r.message || 'OpenAI API key is valid' }); flash('OpenAI key OK'); }
+                        } catch (e) { setTestOpenaiResult({ ok: false, msg: e?.error || e?.message || 'Request failed' }); flash('Test failed'); }
+                        setTestOpenaiSending(false);
+                      }} disabled={testOpenaiSending}>{(testOpenaiSending ? 'Testing...' : 'Test OpenAI key')}</Btn>
+                    </div>
+                    {testOpenaiResult && <p style={{ fontSize: 12, marginTop: 8, color: testOpenaiResult.ok ? '#16a34a' : '#ef4444' }}>{testOpenaiResult.msg}</p>}
+                  </div>
+                )}
               </Card>
             );
           })}
@@ -1754,6 +2009,59 @@ export default function AdminDashboard({ onShowLead }) {
       )}
 
       </div>
+
+      {/* AI Setup Assistant — floating chat at bottom right (Facebook style) */}
+      <AISetupChatWidget
+        dm={dm}
+        tp={tp}
+        ts={ts}
+        border={border}
+        messages={setupChatMessages}
+        setMessages={setSetupChatMessages}
+        input={setupChatInput}
+        setInput={setSetupChatInput}
+        loading={setupChatLoading}
+        applying={setupChatApplying}
+        onSend={async () => {
+          const text = setupChatInput.trim();
+          if (!text || setupChatLoading || setupChatApplying) return;
+          const userMsg = { role: 'user', content: text };
+          setSetupChatMessages(prev => [...prev, userMsg]);
+          setSetupChatInput('');
+          setSetupChatLoading(true);
+          try {
+            const messages = [...setupChatMessages, userMsg].map(({ role, content }) => ({ role, content }));
+            const res = await api.post('/settings/setup-chat', { messages, action: 'generate' });
+            if (res.error) { flash(res.error); return; }
+            if (res.content) setSetupChatMessages(prev => [...prev, { role: 'assistant', content: res.content }]);
+            if (res.applied) flash('Content applied to your site.');
+          } catch (err) {
+            flash(err?.error || err?.message || 'Chat failed');
+          } finally {
+            setSetupChatLoading(false);
+          }
+        }}
+        onApply={async () => {
+          if (setupChatMessages.length === 0) { flash('Chat first, then apply.'); return; }
+          if (!confirm('This will replace your homepage, packages, services, categories, how it works, and sample reviews. Continue?')) return;
+          setSetupChatApplying(true);
+          try {
+            const messagesForApply = [...setupChatMessages.map(({ role, content }) => ({ role, content })), { role: 'user', content: 'Please output the full JSON for my site now so I can apply it.' }];
+            const res = await api.post('/settings/setup-chat', { messages: messagesForApply, action: 'apply' });
+            if (res.error) { flash(res.error); return; }
+            flash(res.message || 'Site content applied.');
+            window.dispatchEvent(new CustomEvent('app:settings-updated'));
+            window.dispatchEvent(new CustomEvent('app:data-updated'));
+            api.get('/settings/all').then((st) => { if (Array.isArray(st)) setSettings(st); }).catch(() => {});
+            api.get('/admin/how-it-works').then((d) => { if (Array.isArray(d)) setSteps(d); }).catch(() => {});
+            if (res.content) setSetupChatMessages(prev => [...prev, { role: 'assistant', content: res.content }]);
+          } catch (err) {
+            flash(err?.error || err?.message || 'Apply failed');
+          } finally {
+            setSetupChatApplying(false);
+          }
+        }}
+      />
     </div>
   );
 }

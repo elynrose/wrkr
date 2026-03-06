@@ -11,6 +11,7 @@ import Header             from './components/Header';
 import Hero               from './components/Hero';
 import ServiceCategories  from './components/ServiceCategories';
 import HowItWorks         from './components/HowItWorks';
+import MarketingSections  from './components/MarketingSections';
 import ProDashboard       from './components/ProDashboard';
 import ConsumerSignupModal from './components/ConsumerSignupModal';
 import ProSignupModal     from './components/ProSignupModal';
@@ -55,7 +56,8 @@ function Toast({ message, onClose }) {
 
 function AppInner() {
   const { user, loading: authLoading } = useAuth();
-  const { siteName } = useSettings();
+  const { siteName, settings } = useSettings();
+  const show = (key) => settings[key] !== 'false' && settings[key] !== false;
   const [view, setView]                   = useState('home');
   const [services, setServices]           = useState([]);
   const [servicesLoading, setServicesLoading] = useState(true);
@@ -273,10 +275,11 @@ function AppInner() {
 
       {view === 'home' && (
         <>
-          <Hero onConsumerSignup={openConsumer} services={services} />
-          <ServiceCategories services={services} loading={servicesLoading} onConsumerSignup={openConsumer} />
-          <HowItWorks onConsumerSignup={openConsumer} onNavigatePro={() => navigate('for-pros')} />
-          <RecentReviews />
+          {show('show_hero') && <Hero onConsumerSignup={openConsumer} onBookDemo={() => openConsumer({ demo: true })} services={services} />}
+          <MarketingSections />
+          {show('show_service_categories') && <ServiceCategories services={services} loading={servicesLoading} onConsumerSignup={openConsumer} />}
+          {show('show_how_it_works') && <HowItWorks onConsumerSignup={openConsumer} onNavigatePro={() => navigate('for-pros')} />}
+          {show('show_recent_reviews') && <RecentReviews />}
         </>
       )}
 

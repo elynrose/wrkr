@@ -69,6 +69,8 @@ export function SettingsProvider({ children }) {
     metaTitle: settings.meta_title || DEFAULTS.meta_title,
     googleAnalyticsEnabled: settings.google_analytics_enabled === true || settings.google_analytics_enabled === 'true' || settings.google_analytics_enabled === '1',
     googleAnalyticsMeasurementId: (settings.google_analytics_measurement_id || DEFAULTS.google_analytics_measurement_id || '').trim(),
+    /** Full settings object for homepage marketing content (hero_headline, section2_*, etc.) */
+    settings,
   };
 
   return (
@@ -88,6 +90,7 @@ const FALLBACK = {
   metaTitle: 'HomePro — Find Trusted Local Service Professionals',
   googleAnalyticsEnabled: false,
   googleAnalyticsMeasurementId: '',
+  settings: {},
 };
 
 export const useSettings = () => useContext(SettingsContext) || FALLBACK;

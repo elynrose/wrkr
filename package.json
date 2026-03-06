@@ -1,0 +1,12 @@
+{
+  "name": "wrkr",
+  "private": true,
+  "description": "Root package for full-stack Heroku deploy (API + frontend)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node homepro-server/server.js",
+    "heroku-postbuild": "npm ci --prefix homepro-server && npm ci --prefix homepro && cd homepro && VITE_API_URL=/api npm run build"
+  }
+}
