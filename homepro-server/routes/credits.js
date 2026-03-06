@@ -98,7 +98,7 @@ router.post('/purchase', authenticate, requireRole('pro'), async (req, res) => {
     const [[pro]] = await db.query('SELECT * FROM pros WHERE user_id = ?', [req.user.id]);
     if (!pro) return res.status(404).json({ error: 'Pro not found' });
 
-    const stripe = await getStripe();
+    const stripe = await getStripe(req.tenant?.id || 1);
     if (stripe) {
       let customerId = pro.stripe_customer_id;
       if (!customerId) {
@@ -178,6 +178,7 @@ router.post('/refill', authenticate, requireRole('pro'), async (req, res) => {
 // GET /api/credits/admin/pro/:proId — admin: view pro's credit balance and history
 router.get('/admin/pro/:proId', authenticate, requireRole('admin'), async (req, res) => {
   try {
+    const tid = req.tenant?.id || 1;
     const proId = parseInt(req.params.proId);
     const [[pro]] = await db.query(
       `SELECT p.id, p.lead_credits, p.subscription_plan, p.business_name, p.credit_last_refill,
@@ -186,8 +187,8 @@ router.get('/admin/pro/:proId', authenticate, requireRole('admin'), async (req, 
        FROM pros p
        JOIN users u ON p.user_id = u.id
        LEFT JOIN subscription_plans sp ON p.subscription_plan = sp.slug
-       WHERE p.id = ?`,
-      [proId]
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [proId, tid]
     );
     if (!pro) return res.status(404).json({ error: 'Pro not found' });
 
@@ -222,7 +223,8 @@ router.post('/admin/adjust', authenticate, requireRole('admin'), async (req, res
 
   try {
     const adjustAmount = parseInt(amount);
-    const [[pro]] = await db.query('SELECT id, user_id, lead_credits FROM pros WHERE id = ?', [proId]);
+    const tid = req.tenant?.id || 1;
+    const [[pro]] = await db.query('SELECT id, user_id, lead_credits FROM pros WHERE id = ? AND tenant_id = ?', [proId, tid]);
     if (!pro) return res.status(404).json({ error: 'Pro not found' });
 
     let balance;
@@ -256,6 +258,7 @@ router.post('/admin/adjust', authenticate, requireRole('admin'), async (req, res
 // GET /api/credits/admin/overview — admin: credit system stats
 router.get('/admin/overview', authenticate, requireRole('admin'), async (req, res) => {
   try {
+    const tid = req.tenant?.id || 1;
     const [[stats]] = await db.query(`
       SELECT
         SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS total_credits_issued,
@@ -266,7 +269,8 @@ router.get('/admin/overview', authenticate, requireRole('admin'), async (req, re
         SUM(CASE WHEN type = 'lead_claim' THEN 1 ELSE 0 END) AS total_claims,
         SUM(CASE WHEN type = 'monthly_refill' AND amount > 0 THEN amount ELSE 0 END) AS refill_credits
       FROM credit_transactions
-    `);
+      WHERE tenant_id = ?
+    `, [tid]);
 
     const [[balanceStats]] = await db.query(`
       SELECT
@@ -275,7 +279,8 @@ router.get('/admin/overview', authenticate, requireRole('admin'), async (req, re
         MAX(lead_credits) AS max_balance,
         COUNT(CASE WHEN lead_credits = 0 THEN 1 END) AS zero_balance_pros
       FROM pros
-    `);
+      WHERE tenant_id = ?
+    `, [tid]);
 
     res.json({ ...stats, ...balanceStats });
   } catch (err) {

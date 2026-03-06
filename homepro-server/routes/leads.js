@@ -43,7 +43,7 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
     // Send confirmation email to customer
     const newLeadId = result.insertId;
     setImmediate(() => {
-      sendNewLeadEmail({ service_name: service, customer_name: name, email, zip, urgency: dbUrgency, description })
+      sendNewLeadEmail({ service_name: service, customer_name: name, email, zip, urgency: dbUrgency, description }, tenantId)
         .catch(err => console.error('[EMAIL] Lead confirmation failed:', err.message));
     });
 
@@ -67,14 +67,20 @@ router.post('/', ...spamProtect({ keyPrefix: 'lead', rateLimitMax: 10, rateLimit
 // GET /api/leads — list leads (admin only), paginated
 router.get('/', authenticate, requireRole('admin'), async (req, res) => {
   const tid = req.tenant?.id || 1;
+  const isSuperAdmin = req.user?.role === 'superadmin';
   try {
-    const { zip, city, service_id, status, source, priority, limit = 25, page = 1 } = req.query;
+    const { zip, city, service_id, status, source, priority, limit = 25, page = 1, tenantId } = req.query;
     const limitNum = Math.min(parseInt(limit) || 25, 100);
     const pageNum = Math.max(1, parseInt(page) || 1);
     const offset = (pageNum - 1) * limitNum;
 
-    const baseWhere = ['l.tenant_id = ?'];
-    const params = [tid];
+    const baseWhere = [];
+    const params = [];
+    if (isSuperAdmin && tenantId) {
+      baseWhere.push('l.tenant_id = ?'); params.push(parseInt(tenantId));
+    } else if (!isSuperAdmin) {
+      baseWhere.push('l.tenant_id = ?'); params.push(tid);
+    }
     if (zip)        { baseWhere.push('l.zip = ?');          params.push(zip); }
     if (city)       { baseWhere.push('l.city_name LIKE ?');  params.push(`%${city}%`); }
     if (service_id) { baseWhere.push('l.service_id = ?');   params.push(service_id); }
@@ -102,6 +108,7 @@ router.get('/', authenticate, requireRole('admin'), async (req, res) => {
 
 // GET /api/leads/mine — current user's leads, paginated
 router.get('/mine', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const { page = 1, limit = 10 } = req.query;
     const limitNum = Math.min(parseInt(limit) || 10, 50);
@@ -109,12 +116,12 @@ router.get('/mine', authenticate, async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
 
     const [[{ total }]] = await db.query(
-      'SELECT COUNT(*) AS total FROM leads WHERE user_id = ? OR email = ?',
-      [req.user.id, req.user.email]
+      'SELECT COUNT(*) AS total FROM leads WHERE (user_id = ? OR email = ?) AND tenant_id = ?',
+      [req.user.id, req.user.email, tid]
     );
     const [rows] = await db.query(
-      'SELECT * FROM leads WHERE user_id = ? OR email = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
-      [req.user.id, req.user.email, limitNum, offset]
+      'SELECT * FROM leads WHERE (user_id = ? OR email = ?) AND tenant_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [req.user.id, req.user.email, tid, limitNum, offset]
     );
     res.json({ leads: rows, total, page: pageNum, limit: limitNum });
   } catch (err) {
@@ -125,8 +132,9 @@ router.get('/mine', authenticate, async (req, res) => {
 
 // GET /api/leads/:id — full lead detail with claims, notes, activity (authenticated)
 router.get('/:id', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    const [rows] = await db.query('SELECT * FROM leads WHERE id = ?', [req.params.id]);
+    const [rows] = await db.query('SELECT * FROM leads WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     if (!rows.length) return res.status(404).json({ error: 'Lead not found' });
 
     const lead = rows[0];
@@ -172,6 +180,7 @@ router.get('/:id', authenticate, async (req, res) => {
 
 // GET /api/leads/for-pro/:proId
 router.get('/for-pro/:proId', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const proId = req.params.proId;
     const [areas] = await db.query('SELECT zip_code, city_id FROM pro_service_areas WHERE pro_id = ?', [proId]);
@@ -181,8 +190,8 @@ router.get('/for-pro/:proId', authenticate, async (req, res) => {
     const serviceIds = proSvcs.map(s => s.service_id);
     if (!zips.length && !serviceIds.length) return res.json([]);
 
-    let query = "SELECT * FROM leads WHERE status IN ('new','matching')";
-    const params = [];
+    let query = "SELECT * FROM leads WHERE status IN ('new','matching') AND tenant_id = ?";
+    const params = [tid];
 
     if (zips.length) {
       query += ` AND zip IN (${zips.map(() => '?').join(',')})`;
@@ -205,10 +214,11 @@ router.get('/for-pro/:proId', authenticate, async (req, res) => {
 router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => {
   const leadId = req.params.id;
   const conn = await db.getConnection();
+  const tid = req.tenant?.id || 1;
   try {
     await conn.beginTransaction();
 
-    const [leads] = await conn.query('SELECT * FROM leads WHERE id = ? FOR UPDATE', [leadId]);
+    const [leads] = await conn.query('SELECT * FROM leads WHERE id = ? AND tenant_id = ? FOR UPDATE', [leadId, tid]);
     if (!leads.length) { await conn.rollback(); return res.status(404).json({ error: 'Lead not found' }); }
 
     const lead = leads[0];
@@ -257,9 +267,9 @@ router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => 
     await conn.commit();
 
     setImmediate(() => {
-      sendLeadClaimedEmailToCustomer(lead, pro)
+      sendLeadClaimedEmailToCustomer(lead, pro, tid)
         .catch(err => console.error('[EMAIL] Claim email to customer failed:', err.message));
-      sendLeadClaimedEmailToPro(req.user.email || pro.phone, lead, pro)
+      sendLeadClaimedEmailToPro(req.user.email || pro.phone, lead, pro, tid)
         .catch(err => console.error('[EMAIL] Claim email to pro failed:', err.message));
     });
 
@@ -277,6 +287,7 @@ router.post('/:id/claim', authenticate, requireRole('pro'), async (req, res) => 
 router.patch('/:id/status', authenticate, async (req, res) => {
   const { status } = req.body;
   const leadId = req.params.id;
+  const tid = req.tenant?.id || 1;
   const allowed = ['new','matching','matched','contacted','quoted','hired','completed','canceled'];
   if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
@@ -306,10 +317,10 @@ router.patch('/:id/status', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Only admins and pros can update lead status' });
     }
 
-    const [old] = await db.query('SELECT status FROM leads WHERE id = ?', [leadId]);
+    const [old] = await db.query('SELECT status FROM leads WHERE id = ? AND tenant_id = ?', [leadId, tid]);
     if (!old.length) return res.status(404).json({ error: 'Lead not found' });
 
-    await db.query('UPDATE leads SET status = ? WHERE id = ?', [status, leadId]);
+    await db.query('UPDATE leads SET status = ? WHERE id = ? AND tenant_id = ?', [status, leadId, tid]);
 
     const oldStatus = old[0].status;
     await db.query('INSERT INTO lead_notes (lead_id, user_id, note_type, content) VALUES (?,?,?,?)',
@@ -344,18 +355,19 @@ router.patch('/:id/status', authenticate, async (req, res) => {
             site_name: siteName,
           };
 
+          const leadTid = lead.tenant_id || 1;
           // Send SMS
           if (lead.phone && !lead.sms_opt_out) {
-            const smsTmpl = await getSmsTemplate('sms_review_request');
+            const smsTmpl = await getSmsTemplate('sms_review_request', leadTid);
             const smsBody = smsTmpl
               ? renderTemplate(smsTmpl.body, vars)
               : `Hi ${vars.customer_name}! Your ${vars.service_name} job is complete. Leave a review: ${reviewUrl}`;
-            sendSMS(lead.phone, smsBody).catch(err => console.error('[SMS] Review request failed:', err.message));
+            sendSMS(lead.phone, smsBody, leadTid).catch(err => console.error('[SMS] Review request failed:', err.message));
           }
 
           // Send email
           if (lead.email) {
-            sendTemplatedEmail('email_review_request', lead.email, vars)
+            sendTemplatedEmail('email_review_request', lead.email, vars, leadTid)
               .catch(err => console.error('[EMAIL] Review request failed:', err.message));
           }
 
@@ -373,35 +385,70 @@ router.patch('/:id/status', authenticate, async (req, res) => {
   }
 });
 
-// PATCH /api/leads/:id — update lead fields (priority, assigned_to, tags, follow_up_date, etc.)
+// PATCH /api/leads/:id — update lead fields. Admin: priority, assigned_to, tags, follow_up_date, internal_notes. Pro: description only (for claimed leads).
 router.patch('/:id', authenticate, async (req, res) => {
   const leadId = req.params.id;
+  const tid = req.tenant?.id || 1;
+  const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
 
-  // Only admins can update lead management fields
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Only admins can update lead fields' });
-  }
+  const { priority, assignedTo, followUpDate, tags, internalNotes, description } = req.body;
 
-  const { priority, assignedTo, followUpDate, tags, internalNotes } = req.body;
   try {
-    const sets = []; const params = [];
-    if (priority !== undefined)      { sets.push('priority = ?');       params.push(priority); }
-    if (assignedTo !== undefined)    { sets.push('assigned_to = ?');    params.push(assignedTo || null); }
-    if (followUpDate !== undefined)  { sets.push('follow_up_date = ?'); params.push(followUpDate || null); }
-    if (tags !== undefined)          { sets.push('tags = ?');           params.push(tags); }
-    if (internalNotes !== undefined) { sets.push('internal_notes = ?'); params.push(internalNotes); }
+    if (isAdmin) {
+      const sets = []; const params = [];
+      if (priority !== undefined)      { sets.push('priority = ?');       params.push(priority); }
+      if (assignedTo !== undefined)    { sets.push('assigned_to = ?');    params.push(assignedTo || null); }
+      if (followUpDate !== undefined)  { sets.push('follow_up_date = ?'); params.push(followUpDate || null); }
+      if (tags !== undefined)          { sets.push('tags = ?');           params.push(tags); }
+      if (internalNotes !== undefined) { sets.push('internal_notes = ?'); params.push(internalNotes); }
+      if (description !== undefined)   { sets.push('description = ?');    params.push(description); }
+      if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+      params.push(leadId, tid);
+      await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
+      await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
+        [leadId, req.user.id, 'lead_updated', `Updated: ${sets.map(s => s.split(' =')[0]).join(', ')}`]);
+      return res.json({ message: 'Lead updated' });
+    }
 
-    if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+    // Pro: may only update description for leads they have claimed
+    if (req.user.role === 'pro' && description !== undefined) {
+      const [[pro]] = await db.query('SELECT id FROM pros WHERE user_id = ?', [req.user.id]);
+      if (!pro) return res.status(403).json({ error: 'Pro profile not found' });
+      const [rows] = await db.query(
+        'SELECT id FROM leads WHERE id = ? AND tenant_id = ? AND claimed_by_pro_id = ?',
+        [leadId, tid, pro.id]
+      );
+      if (!rows.length) return res.status(403).json({ error: 'You can only edit leads you have claimed' });
+      await db.query('UPDATE leads SET description = ? WHERE id = ? AND tenant_id = ?', [description ?? '', leadId, tid]);
+      await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
+        [leadId, req.user.id, 'lead_updated', 'Updated: description']);
+      return res.json({ message: 'Lead updated' });
+    }
 
-    params.push(leadId);
-    await db.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = ?`, params);
-
-    await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [leadId, req.user.id, 'lead_updated', `Updated: ${sets.map(s => s.split(' =')[0]).join(', ')}`]);
-
-    res.json({ message: 'Lead updated' });
+    if (!isAdmin) return res.status(403).json({ error: 'Only admins can update lead fields' });
   } catch (err) {
     console.error('PATCH /leads/:id error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// PUT /api/leads/:id/pro-notes — pro updates their claim notes (claimed leads only)
+router.put('/:id/pro-notes', authenticate, requireRole('pro'), async (req, res) => {
+  const leadId = req.params.id;
+  const tid = req.tenant?.id || 1;
+  const { notes } = req.body;
+  try {
+    const [[pro]] = await db.query('SELECT id FROM pros WHERE user_id = ?', [req.user.id]);
+    if (!pro) return res.status(403).json({ error: 'Pro profile not found' });
+    const [rows] = await db.query(
+      'SELECT id FROM lead_claims WHERE lead_id = ? AND pro_id = ?',
+      [leadId, pro.id]
+    );
+    if (!rows.length) return res.status(403).json({ error: 'You can only update notes for leads you have claimed' });
+    await db.query('UPDATE lead_claims SET notes = ? WHERE lead_id = ? AND pro_id = ?', [notes ?? '', leadId, pro.id]);
+    res.json({ message: 'Notes updated' });
+  } catch (err) {
+    console.error('PUT /leads/:id/pro-notes error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -411,14 +458,15 @@ router.patch('/:id', authenticate, async (req, res) => {
 // POST /api/leads/:id/notes — add a note
 router.post('/:id/notes', authenticate, async (req, res) => {
   const { content, noteType, isPinned } = req.body;
+  const tid = req.tenant?.id || 1;
   if (!content) return res.status(400).json({ error: 'Content is required' });
   try {
     const [result] = await db.query(
       'INSERT INTO lead_notes (lead_id, user_id, note_type, content, is_pinned) VALUES (?,?,?,?,?)',
       [req.params.id, req.user.id, noteType || 'note', content, !!isPinned]
     );
-    await db.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [req.params.id, req.user.id, 'note_added', `Added ${noteType || 'note'}: ${content.substring(0, 80)}`]);
+    await db.query('INSERT INTO lead_activity (tenant_id, lead_id, user_id, action, details) VALUES (?,?,?,?,?)',
+      [tid, req.params.id, req.user.id, 'note_added', `Added ${noteType || 'note'}: ${content.substring(0, 80)}`]);
 
     const [note] = await db.query(
       `SELECT n.*, u.first_name, u.last_name, u.role as user_role

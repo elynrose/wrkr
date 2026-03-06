@@ -6,27 +6,45 @@ const { getStripe } = require('../services/stripe');
 
 // GET /api/subscriptions/plans — list plans (public = active only, admin = all)
 router.get('/plans', async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const { all } = req.query;
     const query = all === 'true'
-      ? 'SELECT * FROM subscription_plans ORDER BY sort_order ASC'
-      : 'SELECT * FROM subscription_plans WHERE is_active = TRUE ORDER BY sort_order ASC';
-    const [rows] = await db.query(query);
+      ? 'SELECT * FROM subscription_plans WHERE tenant_id = ? ORDER BY sort_order ASC'
+      : 'SELECT * FROM subscription_plans WHERE is_active = TRUE AND tenant_id = ? ORDER BY sort_order ASC';
+    const [rows] = await db.query(query, [tid]);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
+// GET /api/subscriptions/admin-plans — authenticated, tenant-scoped list for admin dashboard
+router.get('/admin-plans', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
+  try {
+    const { all } = req.query;
+    const query = all === 'true'
+      ? 'SELECT * FROM subscription_plans WHERE tenant_id = ? ORDER BY sort_order ASC'
+      : 'SELECT * FROM subscription_plans WHERE is_active = TRUE AND tenant_id = ? ORDER BY sort_order ASC';
+    const [rows] = await db.query(query, [tid]);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /subscriptions/admin-plans error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // POST /api/subscriptions/plans — admin: create plan
 router.post('/plans', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { name, slug, stripePriceId, priceMonthly, priceYearly, leadCredits, maxServiceAreas, maxServices, features, isPopular, sortOrder } = req.body;
   if (!name || !slug) return res.status(400).json({ error: 'Name and slug required' });
   try {
     const [result] = await db.query(
-      `INSERT INTO subscription_plans (name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-      [name, slug, stripePriceId || null, priceMonthly || 0, priceYearly || 0, leadCredits || 0, maxServiceAreas || 5, maxServices || 3, features ? JSON.stringify(features) : '{}', !!isPopular, sortOrder || 0]
+      `INSERT INTO subscription_plans (tenant_id, name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [tid, name, slug, stripePriceId || null, priceMonthly || 0, priceYearly || 0, leadCredits || 0, maxServiceAreas || 5, maxServices || 3, features ? JSON.stringify(features) : '{}', !!isPopular, sortOrder || 0]
     );
     res.status(201).json({ id: result.insertId, message: 'Plan created' });
   } catch (err) {
@@ -38,6 +56,7 @@ router.post('/plans', authenticate, requireRole('admin'), async (req, res) => {
 
 // PUT /api/subscriptions/plans/:id — admin: update plan
 router.put('/plans/:id', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   const { name, slug, stripePriceId, priceMonthly, priceYearly, leadCredits, maxServiceAreas, maxServices, features, isPopular, isActive, sortOrder } = req.body;
   try {
     await db.query(
@@ -47,8 +66,8 @@ router.put('/plans/:id', authenticate, requireRole('admin'), async (req, res) =>
         lead_credits=COALESCE(?,lead_credits), max_service_areas=COALESCE(?,max_service_areas),
         max_services=COALESCE(?,max_services), features=COALESCE(?,features),
         is_popular=COALESCE(?,is_popular), is_active=COALESCE(?,is_active), sort_order=COALESCE(?,sort_order)
-       WHERE id=?`,
-      [name, slug, stripePriceId, priceMonthly, priceYearly, leadCredits, maxServiceAreas, maxServices, features ? JSON.stringify(features) : null, isPopular, isActive, sortOrder, req.params.id]
+       WHERE id=? AND tenant_id=?`,
+      [name, slug, stripePriceId, priceMonthly, priceYearly, leadCredits, maxServiceAreas, maxServices, features ? JSON.stringify(features) : null, isPopular, isActive, sortOrder, req.params.id, tid]
     );
     res.json({ message: 'Plan updated' });
   } catch (err) {
@@ -59,8 +78,9 @@ router.put('/plans/:id', authenticate, requireRole('admin'), async (req, res) =>
 
 // DELETE /api/subscriptions/plans/:id — admin: delete plan
 router.delete('/plans/:id', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    await db.query('DELETE FROM subscription_plans WHERE id = ?', [req.params.id]);
+    await db.query('DELETE FROM subscription_plans WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     res.json({ message: 'Plan deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -69,6 +89,7 @@ router.delete('/plans/:id', authenticate, requireRole('admin'), async (req, res)
 
 // GET /api/subscriptions/current — current user's subscription
 router.get('/current', authenticate, requireRole('pro'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const [pros] = await db.query(
       `SELECT p.subscription_plan, p.subscription_status, p.stripe_subscription_id, p.lead_credits,
@@ -84,7 +105,7 @@ router.get('/current', authenticate, requireRole('pro'), async (req, res) => {
     const pro = pros[0];
     let stripeSubscription = null;
 
-    const stripe = await getStripe();
+    const stripe = await getStripe(tid);
     if (stripe && pro.stripe_subscription_id) {
       try {
         stripeSubscription = await stripe.subscriptions.retrieve(pro.stripe_subscription_id);
@@ -114,7 +135,7 @@ router.get('/current', authenticate, requireRole('pro'), async (req, res) => {
 
 // POST /api/subscriptions/cancel
 router.post('/cancel', authenticate, requireRole('pro'), async (req, res) => {
-  const stripe = await getStripe();
+  const stripe = await getStripe(req.tenant?.id || 1);
   if (!stripe) return res.status(503).json({ error: 'Stripe not configured' });
 
   try {
@@ -136,7 +157,7 @@ router.post('/cancel', authenticate, requireRole('pro'), async (req, res) => {
 
 // POST /api/subscriptions/resume — undo cancel
 router.post('/resume', authenticate, requireRole('pro'), async (req, res) => {
-  const stripe = await getStripe();
+  const stripe = await getStripe(req.tenant?.id || 1);
   if (!stripe) return res.status(503).json({ error: 'Stripe not configured' });
 
   try {
@@ -157,7 +178,7 @@ router.post('/resume', authenticate, requireRole('pro'), async (req, res) => {
 
 // POST /api/subscriptions/portal — Stripe billing portal
 router.post('/portal', authenticate, requireRole('pro'), async (req, res) => {
-  const stripe = await getStripe();
+  const stripe = await getStripe(req.tenant?.id || 1);
   if (!stripe) return res.status(503).json({ error: 'Stripe not configured' });
 
   try {

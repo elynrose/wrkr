@@ -8,6 +8,7 @@ const { clearCache: clearStripeCache } = require('../services/stripe');
 const { clearSpamCache } = require('../middleware/spam');
 const { clearSiteConfigCache, getSiteConfig } = require('../services/siteConfig');
 const { sendSMS, isConfigured } = require('../services/sms');
+const { audit } = require('../services/audit');
 
 // POST /api/settings/test-sms — admin: send test SMS (must be before /:key)
 router.post('/test-sms', authenticate, requireRole('admin'), async (req, res) => {
@@ -18,13 +19,14 @@ router.post('/test-sms', authenticate, requireRole('admin'), async (req, res) =>
   const trimmed = to.trim();
   if (!trimmed) return res.status(400).json({ error: 'Phone number required' });
   try {
-    const configured = await isConfigured();
+    const tid = req.tenant?.id || 1;
+    const configured = await isConfigured(tid);
     if (!configured) {
       return res.status(400).json({ error: 'Twilio is not configured. Set Account SID, Auth Token, and Phone Number in Twilio settings.' });
     }
-    const site = await getSiteConfig(req.tenant?.id);
+    const site = await getSiteConfig(tid);
     const body = `Test SMS from ${site.site_name}. Twilio is connected and working.`;
-    const result = await sendSMS(trimmed, body);
+    const result = await sendSMS(trimmed, body, tid);
     res.json({ success: true, message: 'Test SMS sent', sid: result.sid, mock: result.mock });
   } catch (err) {
     console.error('Test SMS error:', err);
@@ -100,9 +102,12 @@ router.put('/', authenticate, requireRole('admin'), async (req, res) => {
 
     if (settings.some(s => s.key?.startsWith('stripe_'))) clearStripeCache();
     if (settings.some(s => s.key?.startsWith('twilio_') || s.key === 'match_notify_count' || s.key === 'match_expiry_hours')) clearSmsCache();
-    if (settings.some(s => s.key?.startsWith('smtp_') || s.key?.startsWith('email_'))) clearEmailCache();
+    if (settings.some(s => s.key?.startsWith('smtp_') || s.key?.startsWith('email_'))) clearEmailCache(tid);
     if (settings.some(s => s.key?.startsWith('spam_'))) clearSpamCache();
     if (settings.some(s => ['site_name', 'support_email', 'support_phone', 'site_tagline'].includes(s.key))) clearSiteConfigCache(tid);
+
+    const keys = settings.filter(s => s.key).map(s => s.key);
+    audit({ tenantId: tid, userId: req.user?.id, action: 'settings_update', entityType: 'settings', newValues: { keys }, ipAddress: req.ip }).catch(() => {});
 
     res.json({ message: `${settings.length} settings updated` });
   } catch (err) {

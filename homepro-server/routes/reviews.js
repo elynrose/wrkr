@@ -75,7 +75,7 @@ router.post('/by-token/:token', async (req, res) => {
   const conn = await db.getConnection();
   try {
     const [leads] = await conn.query(
-      `SELECT l.id, l.user_id, l.claimed_by_pro_id, l.review_submitted, l.customer_name
+      `SELECT l.id, l.user_id, l.claimed_by_pro_id, l.review_submitted, l.customer_name, l.tenant_id
        FROM leads l WHERE l.review_token = ?`, [req.params.token]
     );
     if (!leads.length) return res.status(404).json({ error: 'Invalid review link' });
@@ -83,11 +83,12 @@ router.post('/by-token/:token', async (req, res) => {
     if (lead.review_submitted) return res.status(400).json({ error: 'Review already submitted for this lead' });
     if (!lead.claimed_by_pro_id) return res.status(400).json({ error: 'No provider assigned to this lead' });
 
+    const tenantId = lead.tenant_id || 1;
     await conn.beginTransaction();
 
     await conn.query(
-      'INSERT INTO reviews (pro_id, user_id, lead_id, rating, title, body, is_verified) VALUES (?,?,?,?,?,?,TRUE)',
-      [lead.claimed_by_pro_id, lead.user_id || 0, lead.id, rating, title || '', body || '']
+      'INSERT INTO reviews (tenant_id, pro_id, user_id, lead_id, rating, title, body, is_verified) VALUES (?,?,?,?,?,?,?,TRUE)',
+      [tenantId, lead.claimed_by_pro_id, lead.user_id || 0, lead.id, rating, title || '', body || '']
     );
 
     await conn.query('UPDATE leads SET review_submitted = TRUE WHERE id = ?', [lead.id]);
@@ -114,6 +115,7 @@ router.post('/by-token/:token', async (req, res) => {
 
 // GET /api/reviews/recent — public: latest verified reviews for homepage
 router.get('/recent', async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
     const { limit = 6 } = req.query;
     const [rows] = await db.query(
@@ -124,9 +126,9 @@ router.get('/recent', async (req, res) => {
        JOIN users u ON r.user_id = u.id
        JOIN pros p ON r.pro_id = p.id
        LEFT JOIN leads l ON r.lead_id = l.id
-       WHERE r.is_public = TRUE AND r.is_verified = TRUE
+       WHERE r.is_public = TRUE AND r.is_verified = TRUE AND r.tenant_id = ?
        ORDER BY r.created_at DESC LIMIT ?`,
-      [parseInt(limit)]
+      [tid, parseInt(limit)]
     );
     res.json(rows);
   } catch (err) {
@@ -160,13 +162,14 @@ router.get('/pro/:proId', async (req, res) => {
 // GET /api/reviews/admin — admin: list all reviews with pagination
 router.get('/admin', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const tid = req.tenant?.id || 1;
   const { page = 1, limit = 25, rating, is_public } = req.query;
   const limitNum = Math.min(parseInt(limit) || 25, 100);
   const pageNum = Math.max(1, parseInt(page) || 1);
   const offset = (pageNum - 1) * limitNum;
 
-  const where = [];
-  const params = [];
+  const where = ['r.tenant_id = ?'];
+  const params = [tid];
   if (rating) { where.push('r.rating = ?'); params.push(parseInt(rating)); }
   if (is_public !== undefined && is_public !== '') { where.push('r.is_public = ?'); params.push(is_public === 'true' ? 1 : 0); }
   const whereClause = where.length ? ' WHERE ' + where.join(' AND ') : '';
@@ -194,13 +197,14 @@ router.get('/admin', authenticate, async (req, res) => {
 // PATCH /api/reviews/:id — admin: toggle visibility or update review
 router.patch('/:id', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const tid = req.tenant?.id || 1;
   const { is_public } = req.body;
   try {
     const sets = []; const params = [];
     if (is_public !== undefined) { sets.push('is_public = ?'); params.push(is_public ? 1 : 0); }
     if (!sets.length) return res.status(400).json({ error: 'Nothing to update' });
-    params.push(req.params.id);
-    await db.query(`UPDATE reviews SET ${sets.join(', ')} WHERE id = ?`, params);
+    params.push(req.params.id, tid);
+    await db.query(`UPDATE reviews SET ${sets.join(', ')} WHERE id = ? AND tenant_id = ?`, params);
 
     // Recalc pro aggregate
     const [[review]] = await db.query('SELECT pro_id FROM reviews WHERE id = ?', [req.params.id]);
@@ -218,9 +222,10 @@ router.patch('/:id', authenticate, async (req, res) => {
 // DELETE /api/reviews/:id — admin: delete a review
 router.delete('/:id', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const tid = req.tenant?.id || 1;
   try {
-    const [[review]] = await db.query('SELECT pro_id FROM reviews WHERE id = ?', [req.params.id]);
-    await db.query('DELETE FROM reviews WHERE id = ?', [req.params.id]);
+    const [[review]] = await db.query('SELECT pro_id FROM reviews WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
+    await db.query('DELETE FROM reviews WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     if (review) {
       const [[agg]] = await db.query('SELECT AVG(rating) as avg_r, COUNT(*) as cnt FROM reviews WHERE pro_id = ? AND is_public = TRUE', [review.pro_id]);
       await db.query('UPDATE pros SET avg_rating = ?, total_reviews = ? WHERE id = ?', [Math.round((agg.avg_r || 0) * 10) / 10, agg.cnt || 0, review.pro_id]);
@@ -235,9 +240,10 @@ router.delete('/:id', authenticate, async (req, res) => {
 // POST /api/reviews/:id/respond — pro responds to a review
 router.post('/:id/respond', authenticate, async (req, res) => {
   const { response } = req.body;
+  const tid = req.tenant?.id || 1;
   if (!response) return res.status(400).json({ error: 'Response text required' });
   try {
-    const [review] = await db.query('SELECT pro_id FROM reviews WHERE id = ?', [req.params.id]);
+    const [review] = await db.query('SELECT pro_id FROM reviews WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     if (!review.length) return res.status(404).json({ error: 'Review not found' });
 
     const [pro] = await db.query('SELECT id FROM pros WHERE id = ? AND user_id = ?', [review[0].pro_id, req.user.id]);

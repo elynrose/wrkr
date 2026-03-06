@@ -16,11 +16,21 @@ export default function Footer({ onNavigate }) {
   const { siteName, supportEmail, supportPhone } = useSettings();
   const [navPages, setNavPages] = useState([]);
 
-  useEffect(() => {
+  const fetchPages = () => {
     fetch(`${BASE}/pages`)
       .then(r => r.json())
       .then(d => { if (Array.isArray(d)) setNavPages(d); })
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchPages();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => fetchPages();
+    window.addEventListener('app:data-updated', handler);
+    return () => window.removeEventListener('app:data-updated', handler);
   }, []);
 
   const nav = (view) => onNavigate && onNavigate(view);

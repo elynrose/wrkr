@@ -7,12 +7,16 @@ const { addCredits } = require('../services/credits');
 const { sendProWelcomeEmail } = require('../services/email');
 const { spamProtect } = require('../middleware/spam');
 
-// POST /api/pros — pro signup (creates user + pro profile)
+// POST /api/pros — pro signup (creates user + pro profile). Optional tenant_slug for tenant-site signups.
 router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minTimingMs: 4000 }), async (req, res) => {
-  const { businessName, ownerName, email, phone, password, services, zips, cities, plan, yearsInBusiness, licenseNumber } = req.body;
+  const { businessName, ownerName, email, phone, password, services, zips, cities, plan, yearsInBusiness, licenseNumber, tenant_slug } = req.body;
   if (!businessName || !email) return res.status(400).json({ error: 'Business name and email are required' });
 
-  const tenantId = req.tenant?.id || 1;
+  let tenantId = req.tenant?.id || 1;
+  if (tenant_slug) {
+    const [tenantRows] = await db.query('SELECT id FROM tenants WHERE slug = ? AND status = ? LIMIT 1', [tenant_slug, 'active']);
+    if (tenantRows.length) tenantId = tenantRows[0].id;
+  }
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -79,7 +83,8 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
     setImmediate(() => {
       sendProWelcomeEmail(
         { email, firstName: names[0] },
-        { businessName, credits: initialCredits }
+        { businessName, credits: initialCredits },
+        tenantId
       ).catch(err => console.error('[EMAIL] Pro welcome email failed:', err.message));
     });
 
@@ -98,10 +103,11 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
 // GET /api/pros/:id
 router.get('/:id', async (req, res) => {
   try {
+    const tid = req.tenant?.id || 1;
     const [rows] = await db.query(
       `SELECT p.*, u.first_name, u.last_name, u.email, u.avatar_url
-       FROM pros p JOIN users u ON p.user_id = u.id WHERE p.id = ?`,
-      [req.params.id]
+       FROM pros p JOIN users u ON p.user_id = u.id WHERE p.id = ? AND p.tenant_id = ?`,
+      [req.params.id, tid]
     );
     if (!rows.length) return res.status(404).json({ error: 'Pro not found' });
 
@@ -133,15 +139,16 @@ router.get('/:id', async (req, res) => {
 router.put('/:id', authenticate, async (req, res) => {
   const { businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, googleReviewUrl } = req.body;
   try {
-    const [pros] = await db.query('SELECT id FROM pros WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const tid = req.tenant?.id || 1;
+    const [pros] = await db.query('SELECT id FROM pros WHERE id = ? AND user_id = ? AND tenant_id = ?', [req.params.id, req.user.id, tid]);
     if (!pros.length) return res.status(403).json({ error: 'Not authorized' });
 
     await db.query(
       `UPDATE pros SET business_name=COALESCE(?,business_name), description=COALESCE(?,description),
        phone=COALESCE(?,phone), website=COALESCE(?,website), years_in_business=COALESCE(?,years_in_business),
        license_number=COALESCE(?,license_number), insurance_info=COALESCE(?,insurance_info),
-       google_review_url=COALESCE(?,google_review_url) WHERE id=?`,
-      [businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, googleReviewUrl, req.params.id]
+       google_review_url=COALESCE(?,google_review_url) WHERE id=? AND tenant_id=?`,
+      [businessName, description, phone, website, yearsInBusiness, licenseNumber, insuranceInfo, googleReviewUrl, req.params.id, tid]
     );
     res.json({ message: 'Profile updated' });
   } catch (err) {
@@ -152,9 +159,10 @@ router.put('/:id', authenticate, async (req, res) => {
 // PATCH /api/pros/:id/areas — update service areas
 router.patch('/:id/areas', authenticate, async (req, res) => {
   const { zips, cityIds } = req.body;
+  const tid = req.tenant?.id || 1;
   const conn = await db.getConnection();
   try {
-    const [pros] = await conn.query('SELECT id FROM pros WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const [pros] = await conn.query('SELECT id FROM pros WHERE id = ? AND user_id = ? AND tenant_id = ?', [req.params.id, req.user.id, tid]);
     if (!pros.length) { conn.release(); return res.status(403).json({ error: 'Not authorized' }); }
 
     await conn.beginTransaction();

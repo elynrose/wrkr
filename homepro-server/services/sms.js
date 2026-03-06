@@ -1,32 +1,41 @@
 const twilio = require('twilio');
 const db = require('../db');
 
-let client = null;
-let cachedConfig = null;
-let cacheExpiry = 0;
+const clientByTenant = new Map();
+const cachedConfigByTenant = new Map();
+const cacheExpiryByTenant = new Map();
 
 const CACHE_TTL_MS = 60_000;
 
-async function loadConfig() {
-  if (cachedConfig && Date.now() < cacheExpiry) return cachedConfig;
+async function loadConfig(tenantId = 1) {
+  const tid = tenantId || 1;
+  const expiry = cacheExpiryByTenant.get(tid) || 0;
+  if (cachedConfigByTenant.has(tid) && Date.now() < expiry) return cachedConfigByTenant.get(tid);
   try {
     const [rows] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_group = 'twilio'"
+      "SELECT setting_key, setting_value FROM settings WHERE setting_group = 'twilio' AND tenant_id = ?",
+      [tid]
     );
     const cfg = {};
     for (const r of rows) cfg[r.setting_key] = r.setting_value;
-    cachedConfig = cfg;
-    cacheExpiry = Date.now() + CACHE_TTL_MS;
+    cachedConfigByTenant.set(tid, cfg);
+    cacheExpiryByTenant.set(tid, Date.now() + CACHE_TTL_MS);
     return cfg;
   } catch {
     return {};
   }
 }
 
-function clearCache() {
-  cachedConfig = null;
-  cacheExpiry = 0;
-  client = null;
+function clearCache(tenantId) {
+  if (tenantId != null) {
+    cachedConfigByTenant.delete(tenantId);
+    cacheExpiryByTenant.delete(tenantId);
+    clientByTenant.delete(tenantId);
+  } else {
+    cachedConfigByTenant.clear();
+    cacheExpiryByTenant.clear();
+    clientByTenant.clear();
+  }
 }
 
 function buildClient(sid, token) {
@@ -34,31 +43,33 @@ function buildClient(sid, token) {
   return twilio(sid, token);
 }
 
-async function getClient() {
-  if (client) return client;
-  const cfg = await loadConfig();
+async function getClient(tenantId = 1) {
+  const tid = tenantId || 1;
+  if (clientByTenant.has(tid)) return clientByTenant.get(tid);
+  const cfg = await loadConfig(tid);
   const sid   = cfg.twilio_account_sid   || process.env.TWILIO_ACCOUNT_SID;
   const token = cfg.twilio_auth_token    || process.env.TWILIO_AUTH_TOKEN;
-  client = buildClient(sid, token);
-  return client;
+  const c = buildClient(sid, token);
+  clientByTenant.set(tid, c);
+  return c;
 }
 
-async function getFromNumber() {
-  const cfg = await loadConfig();
+async function getFromNumber(tenantId = 1) {
+  const cfg = await loadConfig(tenantId);
   return cfg.twilio_phone_number || process.env.TWILIO_PHONE_NUMBER || '';
 }
 
-async function isSmsEnabled() {
-  const cfg = await loadConfig();
+async function isSmsEnabled(tenantId = 1) {
+  const cfg = await loadConfig(tenantId);
   const enabledFlag = cfg.twilio_enabled;
   if (enabledFlag === 'true' || enabledFlag === '1') return true;
   if (enabledFlag === 'false' || enabledFlag === '0') return false;
-  return await isConfigured();
+  return await isConfigured(tenantId);
 }
 
-async function sendSMS(to, body) {
-  const enabled = await isSmsEnabled();
-  const tw = await getClient();
+async function sendSMS(to, body, tenantId = 1) {
+  const enabled = await isSmsEnabled(tenantId);
+  const tw = await getClient(tenantId);
 
   if (!enabled || !tw) {
     console.log(`[SMS MOCK] To: ${to} | Body: ${body}`);
@@ -66,7 +77,7 @@ async function sendSMS(to, body) {
   }
 
   try {
-    const from = await getFromNumber();
+    const from = await getFromNumber(tenantId);
     const msg = await tw.messages.create({ to, from, body });
     console.log(`[SMS] Sent to ${to} — SID: ${msg.sid}`);
     return { sid: msg.sid, mock: false };
@@ -76,16 +87,16 @@ async function sendSMS(to, body) {
   }
 }
 
-async function isConfigured() {
-  const cfg = await loadConfig();
+async function isConfigured(tenantId = 1) {
+  const cfg = await loadConfig(tenantId);
   const sid   = cfg.twilio_account_sid   || process.env.TWILIO_ACCOUNT_SID;
   const token = cfg.twilio_auth_token    || process.env.TWILIO_AUTH_TOKEN;
   const phone = cfg.twilio_phone_number  || process.env.TWILIO_PHONE_NUMBER;
   return !!(sid && token && phone);
 }
 
-async function getMatchConfig() {
-  const cfg = await loadConfig();
+async function getMatchConfig(tenantId = 1) {
+  const cfg = await loadConfig(tenantId);
   return {
     notifyCount:  parseInt(cfg.match_notify_count)  || parseInt(process.env.MATCH_NOTIFY_COUNT) || 8,
     expiryHours:  parseInt(cfg.match_expiry_hours)   || parseInt(process.env.MATCH_EXPIRY_HOURS) || 4,

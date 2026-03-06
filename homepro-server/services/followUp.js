@@ -4,9 +4,10 @@ const { matchAndNotify } = require('./matchEngine');
 const { getSmsTemplate, renderTemplate } = require('./email');
 const { getSiteConfig } = require('./siteConfig');
 
-async function getFollowUpConfig() {
+async function getFollowUpConfig(tenantId = 1) {
   const [rows] = await db.query(
-    "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('followup_delay_hours','followup_max_attempts','followup_repeat_hours')"
+    "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('followup_delay_hours','followup_max_attempts','followup_repeat_hours') AND tenant_id = ?",
+    [tenantId || 1]
   );
   const cfg = {};
   for (const r of rows) cfg[r.setting_key] = r.setting_value;
@@ -26,11 +27,10 @@ async function processFollowUps() {
   if (!configured) return { processed: 0, reason: 'SMS not configured' };
 
   const config = await getFollowUpConfig();
-  const site = await getSiteConfig();
 
   const [leads] = await db.query(
     `SELECT l.id, l.customer_name, l.phone, l.email, l.service_name, l.zip,
-            l.follow_up_count, l.claimed_by_business, l.claimed_by_pro_id
+            l.follow_up_count, l.claimed_by_business, l.claimed_by_pro_id, l.tenant_id
      FROM leads l
      WHERE l.follow_up_status IN ('pending','sent')
        AND l.sms_opt_out = FALSE
@@ -46,8 +46,10 @@ async function processFollowUps() {
   let processed = 0;
   for (const lead of leads) {
     try {
+      const leadTid = lead.tenant_id || 1;
+      const site = await getSiteConfig(leadTid);
       let smsBody;
-      const tmpl = await getSmsTemplate('sms_followup_customer');
+      const tmpl = await getSmsTemplate('sms_followup_customer', leadTid);
       if (tmpl) {
         smsBody = renderTemplate(tmpl.body, {
           customerName: lead.customer_name || 'there',
@@ -62,7 +64,7 @@ async function processFollowUps() {
           `Reply YES if you got help, NO if you still need assistance, or STOP to opt out of messages.`;
       }
 
-      const result = await sendSMS(lead.phone, smsBody);
+      const result = await sendSMS(lead.phone, smsBody, leadTid);
 
       await db.query(
         `UPDATE leads SET
@@ -75,8 +77,8 @@ async function processFollowUps() {
       );
 
       await db.query(
-        'INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-        [lead.id, 'followup_sent', `Follow-up #${lead.follow_up_count + 1} sent to ${lead.phone}`]
+        'INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+        [leadTid, lead.id, 'followup_sent', `Follow-up #${lead.follow_up_count + 1} sent to ${lead.phone}`]
       );
 
       processed++;
@@ -97,7 +99,7 @@ async function handleInboundSMS(fromNumber, body, twilioSid) {
 
   // Find the most recent claimed lead for this phone number
   const [leads] = await db.query(
-    `SELECT id, follow_up_status, claimed_by_pro_id, service_name, zip
+    `SELECT id, follow_up_status, claimed_by_pro_id, service_name, zip, tenant_id
      FROM leads
      WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '(', '') LIKE ?
        AND is_claimed = TRUE
@@ -118,6 +120,7 @@ async function handleInboundSMS(fromNumber, body, twilioSid) {
   }
 
   const lead = leads[0];
+  const leadTid = lead.tenant_id || 1;
 
   if (normalizedBody === 'STOP' || normalizedBody === 'UNSUBSCRIBE' || normalizedBody === 'QUIT') {
     await db.query(
@@ -125,10 +128,10 @@ async function handleInboundSMS(fromNumber, body, twilioSid) {
       [leadId]
     );
     await db.query(
-      'INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-      [leadId, 'sms_opt_out', `Customer replied STOP from ${fromNumber}`]
+      'INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+      [leadTid, leadId, 'sms_opt_out', `Customer replied STOP from ${fromNumber}`]
     );
-    const site = await getSiteConfig();
+    const site = await getSiteConfig(leadTid);
     return {
       action: 'stopped',
       reply: `You've been unsubscribed from ${site.site_name} SMS messages. You will not receive further texts about this request.`,
@@ -141,8 +144,8 @@ async function handleInboundSMS(fromNumber, body, twilioSid) {
       [leadId]
     );
     await db.query(
-      'INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-      [leadId, 'customer_confirmed', `Customer confirmed they got help (replied: ${body})`]
+      'INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+      [leadTid, leadId, 'customer_confirmed', `Customer confirmed they got help (replied: ${body})`]
     );
     return {
       action: 'confirmed',
@@ -156,14 +159,14 @@ async function handleInboundSMS(fromNumber, body, twilioSid) {
       [leadId]
     );
     await db.query(
-      'INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-      [leadId, 'customer_needs_help', `Customer said NO — lead re-opened for matching (replied: ${body})`]
+      'INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+      [leadTid, leadId, 'customer_needs_help', `Customer said NO — lead re-opened for matching (replied: ${body})`]
     );
 
     // Re-trigger matching
     setImmediate(async () => {
       try {
-        const matches = await matchAndNotify(leadId);
+        const matches = await matchAndNotify(leadId, leadTid);
         console.log(`[RE-MATCH] Lead #${leadId}: ${matches.length} new pros matched`);
       } catch (err) {
         console.error(`[RE-MATCH] Lead #${leadId} failed:`, err.message);

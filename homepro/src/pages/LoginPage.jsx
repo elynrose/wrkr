@@ -146,6 +146,13 @@ export default function LoginPage({ onNavigate }) {
                 : <>Sign In <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: 13 }} /></>
               }
             </button>
+
+            <p style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: textSecondary }}>
+              <button type="button" onClick={() => onNavigate('forgot-password')} style={{
+                background: 'none', border: 'none', color: 'var(--color-primary)',
+                cursor: 'pointer', textDecoration: 'underline', fontSize: 13,
+              }}>Forgot password?</button>
+            </p>
           </form>
 
           {/* Divider */}
@@ -175,6 +182,7 @@ export default function LoginPage({ onNavigate }) {
             Demo Accounts
           </p>
           {[
+            { label: 'Super Admin', email: 'superadmin@homepro.com', pw: 'superadmin123', color: '#7c3aed' },
             { label: 'Admin', email: 'admin@homepro.com', pw: 'admin123', color: '#ef4444' },
             { label: 'Pro', email: 'pro@demo.com', pw: 'password123', color: 'var(--color-primary)' },
             { label: 'Consumer', email: 'consumer@demo.com', pw: 'password123', color: '#22c55e' },

@@ -18,12 +18,23 @@ export default function RecentReviews() {
   const border = dm ? '#1f2937' : '#e5e7eb';
   const sectionBg = dm ? '#0b1220' : '#f8fafc';
 
-  useEffect(() => {
+  const fetchReviews = (showLoading = false) => {
+    if (showLoading) setLoading(true);
     fetch(`${BASE}/reviews/recent?limit=6`)
       .then(r => r.json())
       .then(d => { if (Array.isArray(d)) setReviews(d); })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (showLoading) setLoading(false); });
+  };
+
+  useEffect(() => {
+    fetchReviews(true);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => fetchReviews(false);
+    window.addEventListener('app:data-updated', handler);
+    return () => window.removeEventListener('app:data-updated', handler);
   }, []);
 
   if (loading || reviews.length === 0) return null;

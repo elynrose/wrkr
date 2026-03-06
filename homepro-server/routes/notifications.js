@@ -24,8 +24,9 @@ router.get('/', authenticate, async (req, res) => {
 
 // PATCH /api/notifications/:id/read
 router.patch('/:id/read', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    await db.query('UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    await db.query('UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ? AND tenant_id = ?', [req.params.id, req.user.id, tid]);
     res.json({ message: 'Marked as read' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -34,8 +35,9 @@ router.patch('/:id/read', authenticate, async (req, res) => {
 
 // POST /api/notifications/read-all
 router.post('/read-all', authenticate, async (req, res) => {
+  const tid = req.tenant?.id || 1;
   try {
-    await db.query('UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE', [req.user.id]);
+    await db.query('UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE AND tenant_id = ?', [req.user.id, tid]);
     res.json({ message: 'All marked as read' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

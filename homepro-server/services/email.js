@@ -2,9 +2,9 @@ const nodemailer = require('nodemailer');
 const db = require('../db');
 const { getSiteConfig } = require('./siteConfig');
 
-let transporter = null;
-let cachedConfig = null;
-let cacheExpiry = 0;
+const transporterByTenant = new Map();
+const configByTenant = new Map();
+const configExpiryByTenant = new Map();
 let templateCache = {};
 let templateCacheExpiry = 0;
 
@@ -12,26 +12,35 @@ const CACHE_TTL_MS = 60_000;
 
 // ── SMTP config ─────────────────────────────────────────────
 
-async function loadConfig() {
-  if (cachedConfig && Date.now() < cacheExpiry) return cachedConfig;
+async function loadConfig(tenantId = 1) {
+  const tid = tenantId || 1;
+  const expiry = configExpiryByTenant.get(tid) || 0;
+  if (configByTenant.get(tid) && Date.now() < expiry) return configByTenant.get(tid);
   try {
     const [rows] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_group = 'email'"
+      "SELECT setting_key, setting_value FROM settings WHERE setting_group = 'email' AND tenant_id = ?",
+      [tid]
     );
     const cfg = {};
     for (const r of rows) cfg[r.setting_key] = r.setting_value;
-    cachedConfig = cfg;
-    cacheExpiry = Date.now() + CACHE_TTL_MS;
+    configByTenant.set(tid, cfg);
+    configExpiryByTenant.set(tid, Date.now() + CACHE_TTL_MS);
     return cfg;
   } catch {
     return {};
   }
 }
 
-function clearCache() {
-  cachedConfig = null;
-  cacheExpiry = 0;
-  transporter = null;
+function clearCache(tenantId) {
+  if (tenantId != null) {
+    configByTenant.delete(tenantId);
+    configExpiryByTenant.delete(tenantId);
+    transporterByTenant.delete(tenantId);
+  } else {
+    configByTenant.clear();
+    configExpiryByTenant.clear();
+    transporterByTenant.clear();
+  }
 }
 
 function clearTemplateCache() {
@@ -39,29 +48,47 @@ function clearTemplateCache() {
   templateCacheExpiry = 0;
 }
 
-async function getTransporter() {
-  if (transporter) return transporter;
-  const cfg = await loadConfig();
-  const host = cfg.smtp_host;
+async function getTransporter(tenantId = 1) {
+  const tid = tenantId || 1;
+  if (transporterByTenant.has(tid)) return transporterByTenant.get(tid);
+  const cfg = await loadConfig(tid);
+  const host = (cfg.smtp_host || '').trim();
   const port = parseInt(cfg.smtp_port) || 587;
   const secure = cfg.smtp_secure === 'true' || cfg.smtp_secure === '1';
-  const user = cfg.smtp_user;
+  const user = (cfg.smtp_user || '').trim();
   const pass = cfg.smtp_password;
 
-  if (!host || !user) return null;
+  if (!host) return null;
 
-  transporter = nodemailer.createTransport({ host, port, secure, auth: { user, pass } });
-  return transporter;
+  const opts = { host, port, secure };
+  if (user) opts.auth = { user, pass };
+  const tp = nodemailer.createTransport(opts);
+  transporterByTenant.set(tid, tp);
+  return tp;
 }
 
-async function isEnabled() {
-  const cfg = await loadConfig();
+async function isEnabled(tenantId = 1) {
+  const cfg = await loadConfig(tenantId || 1);
   return cfg.email_enabled === 'true' || cfg.email_enabled === '1';
 }
 
-async function sendEmail({ to, subject, html, text }) {
-  const enabled = await isEnabled();
-  const cfg = await loadConfig();
+/** Returns { ready, reason } for diagnostic messages */
+async function getEmailConfigStatus(tenantId = 1) {
+  const cfg = await loadConfig(tenantId || 1);
+  if (cfg.email_enabled !== 'true' && cfg.email_enabled !== '1') {
+    return { ready: false, reason: 'Enable "Email Enabled" and save settings first' };
+  }
+  const host = (cfg.smtp_host || '').trim();
+  if (!host) {
+    return { ready: false, reason: 'SMTP Host is required (e.g. localhost for MailHog, or smtp.mailtrap.io)' };
+  }
+  return { ready: true };
+}
+
+async function sendEmail({ to, subject, html, text, tenantId }) {
+  const tid = tenantId || 1;
+  const enabled = await isEnabled(tid);
+  const cfg = await loadConfig(tid);
   const fromName = cfg.email_from_name || 'HomePro';
   const fromAddr = cfg.email_from_address || 'noreply@homepro.com';
   const from = `"${fromName}" <${fromAddr}>`;
@@ -71,7 +98,7 @@ async function sendEmail({ to, subject, html, text }) {
     return { messageId: `MOCK_${Date.now()}`, mock: true };
   }
 
-  const tp = await getTransporter();
+  const tp = await getTransporter(tid);
   if (!tp) {
     console.log(`[EMAIL MOCK — no SMTP configured] To: ${to} | Subject: ${subject}`);
     return { messageId: `MOCK_${Date.now()}`, mock: true };
@@ -99,15 +126,17 @@ function renderTemplate(text, vars) {
   return result;
 }
 
-async function getTemplate(slug) {
-  if (templateCache[slug] && Date.now() < templateCacheExpiry) return templateCache[slug];
+async function getTemplate(slug, tenantId = 1) {
+  const tid = tenantId || 1;
+  const cacheKey = `${tid}_${slug}`;
+  if (templateCache[cacheKey] && Date.now() < templateCacheExpiry) return templateCache[cacheKey];
   try {
     const [rows] = await db.query(
-      'SELECT * FROM notification_templates WHERE slug = ? AND is_active = TRUE LIMIT 1',
-      [slug]
+      'SELECT * FROM notification_templates WHERE slug = ? AND is_active = TRUE AND tenant_id = ? LIMIT 1',
+      [slug, tid]
     );
     if (rows.length) {
-      templateCache[slug] = rows[0];
+      templateCache[cacheKey] = rows[0];
       templateCacheExpiry = Date.now() + CACHE_TTL_MS;
       return rows[0];
     }
@@ -136,8 +165,9 @@ function wrap(title, body, siteName = 'HomePro') {
 </body></html>`;
 }
 
-async function sendTemplatedEmail(slug, to, vars) {
-  const [tmpl, site] = await Promise.all([getTemplate(slug), getSiteConfig()]);
+async function sendTemplatedEmail(slug, to, vars, tenantId = 1) {
+  const tid = tenantId || 1;
+  const [tmpl, site] = await Promise.all([getTemplate(slug, tid), getSiteConfig(tid)]);
   if (!tmpl) {
     console.log(`[EMAIL] Template "${slug}" not found or inactive — skipping`);
     return null;
@@ -146,51 +176,69 @@ async function sendTemplatedEmail(slug, to, vars) {
   const renderedBody = renderTemplate(tmpl.body, allVars);
   const renderedSubject = renderTemplate(tmpl.subject || '', allVars);
   const html = wrap(renderedSubject, renderedBody, site.site_name);
-  return sendEmail({ to, subject: renderedSubject, html });
+  return sendEmail({ to, subject: renderedSubject, html, tenantId: tid });
 }
 
 // ── Specific email senders ──────────────────────────────────
 
 const DASHBOARD_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 
-async function sendWelcomeEmail(user) {
+async function sendWelcomeEmail(user, tenantId = 1) {
   const slug = user.role === 'pro' ? 'welcome_pro' : 'welcome_consumer';
   return sendTemplatedEmail(slug, user.email, {
     firstName: user.firstName || 'there',
     email: user.email,
     role: user.role,
     dashboardUrl: DASHBOARD_URL(),
-  });
+  }, tenantId);
 }
 
-async function sendProWelcomeEmail(user, proData) {
+async function sendProWelcomeEmail(user, proData, tenantId = 1) {
   return sendTemplatedEmail('welcome_pro', user.email, {
     firstName: user.firstName || proData.businessName || 'there',
     businessName: proData.businessName || '',
     email: user.email,
     credits: String(proData.credits || 10),
     dashboardUrl: DASHBOARD_URL(),
-  });
+  }, tenantId);
 }
 
-async function sendPasswordChangedEmail(user) {
+async function sendPasswordChangedEmail(user, tenantId = 1) {
   return sendTemplatedEmail('password_changed', user.email, {
     firstName: user.firstName || 'there',
-    supportEmail: (await getSiteConfig()).support_email,
-  });
+    supportEmail: (await getSiteConfig(tenantId)).support_email,
+  }, tenantId);
 }
 
-async function sendNewLeadEmail(lead) {
+async function sendPasswordResetEmail(user, resetUrl, tenantId = 1) {
+  return sendTemplatedEmail('password_reset', user.email, {
+    firstName: user.firstName || 'there',
+    email: user.email,
+    resetUrl,
+    siteName: (await getSiteConfig(tenantId)).site_name || 'HomePro',
+  }, tenantId);
+}
+
+async function sendEmailVerification(user, verifyUrl, tenantId = 1) {
+  return sendTemplatedEmail('email_verify', user.email, {
+    firstName: user.firstName || 'there',
+    email: user.email,
+    verifyUrl,
+    siteName: (await getSiteConfig(tenantId)).site_name || 'HomePro',
+  }, tenantId);
+}
+
+async function sendNewLeadEmail(lead, tenantId = 1) {
   return sendTemplatedEmail('new_lead_submitted', lead.email, {
     serviceName: lead.service_name || lead.service || 'N/A',
     customerName: lead.customer_name || lead.name || 'N/A',
     zip: lead.zip || 'N/A',
     urgency: lead.urgency || 'flexible',
     description: lead.description ? lead.description.substring(0, 200) : '',
-  });
+  }, tenantId);
 }
 
-async function sendLeadClaimedEmailToCustomer(lead, pro) {
+async function sendLeadClaimedEmailToCustomer(lead, pro, tenantId = 1) {
   return sendTemplatedEmail('lead_claimed_customer', lead.email, {
     serviceName: lead.service_name || 'service',
     businessName: pro.business_name,
@@ -198,10 +246,10 @@ async function sendLeadClaimedEmailToCustomer(lead, pro) {
     totalReviews: String(pro.total_reviews || 0),
     proPhone: pro.phone || '',
     maxClaims: String(lead.max_claims || 4),
-  });
+  }, tenantId);
 }
 
-async function sendLeadClaimedEmailToPro(proEmail, lead, proData) {
+async function sendLeadClaimedEmailToPro(proEmail, lead, proData, tenantId = 1) {
   return sendTemplatedEmail('lead_claimed_pro', proEmail, {
     businessName: proData.business_name || 'there',
     serviceName: lead.service_name || 'N/A',
@@ -211,10 +259,10 @@ async function sendLeadClaimedEmailToPro(proEmail, lead, proData) {
     zip: lead.zip || 'N/A',
     description: lead.description || '',
     dashboardUrl: DASHBOARD_URL(),
-  });
+  }, tenantId);
 }
 
-async function sendLeadMatchEmail(proEmail, lead, matchData) {
+async function sendLeadMatchEmail(proEmail, lead, matchData, tenantId = 1) {
   const claimUrl = matchData.claimUrl || `${DASHBOARD_URL()}/#claim/${matchData.token}`;
   return sendTemplatedEmail('lead_match_pro', proEmail, {
     serviceName: lead.service_name || 'N/A',
@@ -225,18 +273,19 @@ async function sendLeadMatchEmail(proEmail, lead, matchData) {
     claimUrl,
     expiryHours: String(matchData.expiryHours || 4),
     maxClaims: String(matchData.maxClaims || 3),
-  });
+  }, tenantId);
 }
 
 // ── SMS template helper (used by matchEngine) ───────────────
 
-async function getSmsTemplate(slug) {
-  return getTemplate(slug);
+async function getSmsTemplate(slug, tenantId = 1) {
+  return getTemplate(slug, tenantId);
 }
 
 module.exports = {
   sendEmail,
   clearCache,
+  getEmailConfigStatus,
   clearTemplateCache,
   renderTemplate,
   getTemplate,
@@ -244,6 +293,8 @@ module.exports = {
   sendWelcomeEmail,
   sendProWelcomeEmail,
   sendPasswordChangedEmail,
+  sendPasswordResetEmail,
+  sendEmailVerification,
   sendNewLeadEmail,
   sendLeadClaimedEmailToCustomer,
   sendLeadClaimedEmailToPro,

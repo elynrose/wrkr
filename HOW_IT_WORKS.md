@@ -191,6 +191,43 @@ The platform supports **multi-tenancy** — a single server installation hosts m
 
 Alternatively, new tenants can self-sign-up at `/join` (the `TenantSignupPage`).
 
+### Domain Configuration Instructions (Super Admin)
+
+Use this checklist whenever you connect a tenant's custom domain.
+
+1. **Set domain in tenant record**
+   - Go to **Admin → Users → Tenants**.
+   - Create or edit a tenant and set **Custom Domain** (example: `acmehome.com`).
+   - Save changes.
+
+2. **Configure DNS**
+   - At the domain registrar/DNS provider, create an **A record**:
+     - Host: `@`
+     - Value: your server public IP
+   - Optional: add `www` as a **CNAME** to root (`@`) or as another A record.
+   - Wait for propagation (can take minutes to hours).
+
+3. **Configure reverse proxy / web server**
+   - Add the tenant domain to your web server virtual host.
+   - Route requests to your frontend/backend app process.
+   - Ensure `Host` header is preserved (required for tenant resolution).
+
+4. **Enable SSL**
+   - Issue a TLS certificate for the tenant domain (and `www` if used).
+   - Force HTTPS redirects in your web server config.
+
+5. **Verify tenant resolution**
+   - Open `https://tenant-domain.com`.
+   - Confirm branding/content/settings match that tenant.
+   - Test login and dashboard data isolation.
+
+6. **Troubleshooting**
+   - If the wrong tenant loads, check:
+     - `tenants.custom_domain` value matches the exact host.
+     - Domain points to the correct server IP.
+     - Reverse proxy forwards the original host.
+   - On `localhost`, the app always resolves to default tenant (id=1). Use a host alias (for example `acme.local`) if testing domain-based routing locally.
+
 ### Running the Migration (Existing Installs)
 
 If upgrading from a single-tenant installation:

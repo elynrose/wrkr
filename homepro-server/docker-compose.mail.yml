@@ -1,0 +1,10 @@
+# Local email testing with MailHog
+# Run: docker compose -f docker-compose.mail.yml up -d
+# Web UI: http://localhost:8025
+# SMTP: localhost:1025 (no auth)
+services:
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI

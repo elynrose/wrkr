@@ -26,8 +26,7 @@ export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULTS);
   const [tenant, setTenant] = useState(DEFAULT_TENANT);
 
-  useEffect(() => {
-    // Load tenant config (includes settings) in one call
+  const refetch = () => {
     fetch(`${BASE}/tenant/config`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
@@ -38,7 +37,6 @@ export function SettingsProvider({ children }) {
         }
       })
       .catch(() => {
-        // Fall back to direct settings fetch
         fetch(`${BASE}/settings`)
           .then(r => r.ok ? r.json() : null)
           .then(data => {
@@ -46,6 +44,16 @@ export function SettingsProvider({ children }) {
           })
           .catch(() => {});
       });
+  };
+
+  useEffect(() => {
+    refetch();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => refetch();
+    window.addEventListener('app:settings-updated', handler);
+    return () => window.removeEventListener('app:settings-updated', handler);
   }, []);
 
   useEffect(() => {

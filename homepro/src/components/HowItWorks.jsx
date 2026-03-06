@@ -58,8 +58,22 @@ export default function HowItWorks({ onConsumerSignup, onNavigatePro }) {
   const { darkMode } = useTheme();
   const [consumerSteps, setConsumerSteps] = useState(CONSUMER_FALLBACK);
 
-  useEffect(() => {
+  const fetchSteps = () => {
     getHowItWorks('consumer').then(d => { if (d.length) setConsumerSteps(d); }).catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchSteps();
+  }, []);
+
+  useEffect(() => {
+    const handler = () => fetchSteps();
+    window.addEventListener('app:settings-updated', handler);
+    window.addEventListener('app:data-updated', handler);
+    return () => {
+      window.removeEventListener('app:settings-updated', handler);
+      window.removeEventListener('app:data-updated', handler);
+    };
   }, []);
 
   const headColor = darkMode ? '#fff' : '#111827';

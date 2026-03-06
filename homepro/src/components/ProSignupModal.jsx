@@ -17,7 +17,7 @@ const PLANS = [
   { key:'enterprise',   name:'Enterprise',             price:'Custom',  unit:'',          desc:'Multi-location businesses with a dedicated account manager.',            highlight:false },
 ];
 
-export default function ProSignupModal({ services = [], onClose, onSuccess }) {
+export default function ProSignupModal({ services = [], tenantSlug, onClose, onSuccess }) {
   const { darkMode } = useTheme();
   const { fetchMe } = useAuth();
   const { spamFields, SpamHoneypot } = useSpamProtect();
@@ -57,7 +57,9 @@ export default function ProSignupModal({ services = [], onClose, onSuccess }) {
     setLoading(true);
     setError('');
     try {
-      const data = await signupPro({ ...form, ...spamFields() });
+      const payload = { ...form, ...spamFields() };
+      if (tenantSlug) payload.tenant_slug = tenantSlug;
+      const data = await signupPro(payload);
       if (data.token) {
         localStorage.setItem('hp_token', data.token);
         await fetchMe();

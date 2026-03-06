@@ -28,6 +28,11 @@ import ClaimPage        from './pages/ClaimPage';
 import ReviewPage       from './pages/ReviewPage';
 import InstallPage      from './pages/InstallPage';
 import TenantSignupPage from './pages/TenantSignupPage';
+import TenantHomePage   from './pages/TenantHomePage';
+import TenantForProsPage from './pages/TenantForProsPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage  from './pages/ResetPasswordPage';
+import VerifyEmailPage    from './pages/VerifyEmailPage';
 import ErrorBoundary    from './components/ErrorBoundary';
 import GoogleAnalytics  from './components/GoogleAnalytics';
 
@@ -61,6 +66,9 @@ function AppInner() {
   const [cmsSlug, setCmsSlug]             = useState(null);
   const [claimToken, setClaimToken]       = useState(null);
   const [reviewToken, setReviewToken]     = useState(null);
+  const [resetToken, setResetToken]       = useState(null);
+  const [verifyToken, setVerifyToken]     = useState(null);
+  const [tenantSlug, setTenantSlug]       = useState(null);
 
   // Parse hash routes on load and hash change (for SMS claim links)
   useEffect(() => {
@@ -85,6 +93,34 @@ function AppInner() {
       if (reviewMatch) {
         setReviewToken(reviewMatch[1]);
         setView('review');
+        return;
+      }
+      const resetMatch = hash.match(/^#reset\/(.+)$/);
+      if (resetMatch) {
+        setResetToken(resetMatch[1]);
+        setView('reset-password');
+        return;
+      }
+      const verifyMatch = hash.match(/^#verify\/(.+)$/);
+      if (verifyMatch) {
+        setVerifyToken(verifyMatch[1]);
+        setView('verify-email');
+        return;
+      }
+      if (hash === '#forgot' || hash === '#/forgot') {
+        setView('forgot-password');
+        return;
+      }
+      const tenantForProsMatch = hash.match(/^#t\/([^/]+)\/for-pros$/);
+      if (tenantForProsMatch) {
+        setTenantSlug(tenantForProsMatch[1]);
+        setView('tenant-for-pros');
+        return;
+      }
+      const tenantMatch = hash.match(/^#t\/(.+)$/);
+      if (tenantMatch) {
+        setTenantSlug(tenantMatch[1]);
+        setView('tenant-home');
         return;
       }
       const pageMatch = hash.match(/^#page\/(.+)$/);
@@ -126,39 +162,76 @@ function AppInner() {
     }
   }, []);
 
-  useEffect(() => {
+  const fetchServices = () => {
+    setServicesLoading(true);
     getServices()
       .then(d => setServices(d))
       .catch(() => setServices([]))
       .finally(() => setServicesLoading(false));
+  };
+
+  useEffect(() => {
+    fetchServices();
   }, []);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && view === 'home') fetchServices();
+    };
+    const onDataUpdated = () => { if (view === 'home') fetchServices(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('app:settings-updated', onDataUpdated);
+    window.addEventListener('app:data-updated', onDataUpdated);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('app:settings-updated', onDataUpdated);
+      window.removeEventListener('app:data-updated', onDataUpdated);
+    };
+  }, [view]);
 
   // After login, redirect based on role
   useEffect(() => {
     if (user && (view === 'login' || view === 'register')) {
-      if (user.role === 'admin') setView('admin');
+      if (user.role === 'admin' || user.role === 'superadmin') setView('admin');
       else if (user.role === 'pro') setView('pro-dashboard');
       else setView('home');
     }
   }, [user, view]);
 
-  // Logged-in pros on the for-pros landing page go straight to dashboard
+  // Logged-in pros on the for-pros or tenant-for-pros page go straight to dashboard
   useEffect(() => {
-    if (view === 'for-pros' && user?.role === 'pro') {
+    if ((view === 'for-pros' || view === 'tenant-for-pros') && user?.role === 'pro') {
       setView('pro-dashboard');
     }
   }, [view, user?.role]);
 
+  // Logged-in admins/superadmins on the home page go straight to admin dashboard
+  useEffect(() => {
+    if (view === 'home' && (user?.role === 'admin' || user?.role === 'superadmin')) {
+      setView('admin');
+    }
+  }, [view, user?.role]);
+
   const openConsumer = (data = {}) => setConsumerModal(data);
-  const openPro      = ()          => setProModal(true);
+  const openPro      = (opts)     => setProModal(opts && opts.tenantSlug ? { tenantSlug: opts.tenantSlug } : true);
   const showToast    = (msg)       => setToast(msg);
 
   const navigate = (v) => {
     if (v && v.startsWith('page:')) {
       setCmsSlug(v.slice(5));
       setView('cms-page');
+    } else if (v && v.startsWith('tenant:')) {
+      setTenantSlug(v.slice(7));
+      setView('tenant-home');
+      window.location.hash = `#t/${v.slice(7)}`;
+    } else if (v === 'forgot-password') {
+      setResetToken(null);
+      setVerifyToken(null);
+      setView('forgot-password');
+      window.location.hash = '#forgot';
     } else {
       setCmsSlug(null);
+      setTenantSlug(null);
       setView(v);
     }
     window.scrollTo(0, 0);
@@ -181,8 +254,13 @@ function AppInner() {
   if (view === 'review' && reviewToken) return <ReviewPage token={reviewToken} onNavigate={navigate} />;
   if (view === 'install') return <InstallPage onNavigate={navigate} />;
   if (view === 'join')    return <TenantSignupPage onNavigate={navigate} />;
+  if (view === 'tenant-home' && tenantSlug) return <TenantHomePage slug={tenantSlug} onNavigate={navigate} />;
+  if (view === 'tenant-for-pros' && tenantSlug) return <TenantForProsPage slug={tenantSlug} onNavigate={navigate} onProSignup={openPro} />;
   if (view === 'login') return <LoginPage onNavigate={navigate} />;
   if (view === 'register') return <RegisterPage onNavigate={navigate} />;
+  if (view === 'forgot-password') return <ForgotPasswordPage onNavigate={navigate} />;
+  if (view === 'reset-password' && resetToken) return <ResetPasswordPage token={resetToken} onNavigate={navigate} />;
+  if (view === 'verify-email' && verifyToken) return <VerifyEmailPage token={verifyToken} onNavigate={navigate} />;
 
   return (
     <div style={{ fontFamily: 'var(--font-family)' }}>
@@ -237,15 +315,15 @@ function AppInner() {
         <CmsPage slug={cmsSlug} />
       )}
 
-      {view === 'admin' && user?.role === 'admin' && !selectedLeadId && (
+      {view === 'admin' && (user?.role === 'admin' || user?.role === 'superadmin') && !selectedLeadId && (
         <AdminDashboard onShowLead={(id) => setSelectedLeadId(id)} />
       )}
 
-      {view === 'admin' && user?.role === 'admin' && selectedLeadId && (
+      {view === 'admin' && (user?.role === 'admin' || user?.role === 'superadmin') && selectedLeadId && (
         <LeadDetailsPage leadId={selectedLeadId} onBack={() => setSelectedLeadId(null)} />
       )}
 
-      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim','review','install'].includes(view) && (
+      {!['home','how','for-pros','pro-dashboard','profile','cms-page','admin','claim','review','install','tenant-home','tenant-for-pros','join'].includes(view) && (
         <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 40 }}>
           <h2 style={{ fontSize: 48, fontWeight: 800, color: 'var(--color-primary)' }}>404</h2>
           <p style={{ fontSize: 18, fontWeight: 600 }}>Page not found</p>
@@ -273,8 +351,13 @@ function AppInner() {
       {proModal && (
         <ProSignupModal
           services={services}
+          tenantSlug={typeof proModal === 'object' && proModal?.tenantSlug ? proModal.tenantSlug : undefined}
           onClose={() => setProModal(false)}
-          onSuccess={() => showToast(`Account created! Welcome to ${siteName}. Check your email for next steps.`)}
+          onSuccess={() => {
+            showToast(`Account created! Welcome to ${siteName}. Check your email for next steps.`);
+            setProModal(false);
+            navigate('pro-dashboard');
+          }}
         />
       )}
 

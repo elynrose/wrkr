@@ -1,10 +1,15 @@
 const express = require('express');
 const bcrypt  = require('bcryptjs');
+const crypto = require('crypto');
 const router  = express.Router();
 const db      = require('../db');
 const { generateToken, authenticate } = require('../middleware/auth');
-const { sendWelcomeEmail, sendPasswordChangedEmail } = require('../services/email');
+const { sendWelcomeEmail, sendPasswordChangedEmail, sendPasswordResetEmail, sendEmailVerification } = require('../services/email');
+const { getRequireEmailVerification } = require('../services/siteConfig');
+const { audit } = require('../services/audit');
 const { spamProtect, rateLimit } = require('../middleware/spam');
+
+const FRONTEND_URL = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // POST /api/auth/register
 router.post('/register', ...spamProtect({ keyPrefix: 'register', rateLimitMax: 10, rateLimitSettingKey: 'spam_rate_limit_max_register', minTimingMs: 3000 }), async (req, res) => {
@@ -28,18 +33,22 @@ router.post('/register', ...spamProtect({ keyPrefix: 'register', rateLimitMax: 1
 
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
-      `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone, email_verified)
+       VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)`,
       [tenantId, email, hash, userRole, firstName || null, lastName || null, phone || null]
     );
 
-    const user = { id: result.insertId, email, role: userRole };
+    const user = { id: result.insertId, email, role: userRole, tenant_id: tenantId };
     const token = generateToken(user);
 
-    setImmediate(() => {
-      sendWelcomeEmail({ email, firstName, role: userRole }).catch(err =>
-        console.error('[EMAIL] Welcome email failed:', err.message)
-      );
+    setImmediate(async () => {
+      try { await sendWelcomeEmail({ email, firstName, role: userRole }, tenantId); } catch (err) { console.error('[EMAIL] Welcome failed:', err.message); }
+      try {
+        const verifyToken = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await db.query('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [result.insertId, verifyToken, expiresAt]);
+        await sendEmailVerification({ email, firstName }, `${FRONTEND_URL()}/#verify/${verifyToken}`, tenantId);
+      } catch (err) { console.error('[EMAIL] Verification failed:', err.message); }
     });
 
     res.status(201).json({
@@ -61,15 +70,29 @@ router.post('/login', rateLimit({ keyPrefix: 'login', max: 15, windowMs: 15 * 60
   }
 
   const tenantId = req.tenant?.id || 1;
+  const host = (req.hostname || '').toLowerCase();
+  const isLocalhost = !host || host === 'localhost' || host === '127.0.0.1';
   try {
+    let user = null;
     const [rows] = await db.query('SELECT * FROM users WHERE email = ? AND tenant_id = ?', [email, tenantId]);
-    if (!rows.length) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (rows.length) {
+      user = rows[0];
+    } else if (isLocalhost) {
+      // Local dev fallback: if email exists in exactly one tenant, allow login there.
+      const [anyTenantRows] = await db.query('SELECT * FROM users WHERE email = ? LIMIT 2', [email]);
+      if (anyTenantRows.length === 1) {
+        user = anyTenantRows[0];
+      } else if (anyTenantRows.length > 1) {
+        return res.status(409).json({ error: 'This email exists in multiple tenants. Use the tenant domain to sign in.' });
+      }
     }
-
-    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Invalid email or password' });
     if (!user.is_active) {
       return res.status(403).json({ error: 'Account is deactivated' });
+    }
+    const requireVerify = await getRequireEmailVerification(user.tenant_id);
+    if (requireVerify && !user.email_verified) {
+      return res.status(403).json({ error: 'Please verify your email before signing in. Check your inbox or request a new verification link.' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
@@ -79,11 +102,19 @@ router.post('/login', rateLimit({ keyPrefix: 'login', max: 15, windowMs: 15 * 60
 
     await db.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
 
+    audit({ tenantId: user.tenant_id, userId: user.id, action: 'login', ipAddress: req.ip || req.connection?.remoteAddress }).catch(() => {});
+
     const token = generateToken(user);
+    const refreshToken = crypto.randomBytes(32).toString('hex');
+    const refreshExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    await db.query('INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, refreshToken, refreshExpires]);
     res.json({
       token,
+      refreshToken,
+      expiresIn: 7 * 24 * 60 * 60, // seconds
       user: {
         id: user.id, email: user.email, role: user.role,
+        tenantId: user.tenant_id,
         firstName: user.first_name, lastName: user.last_name,
         phone: user.phone, avatarUrl: user.avatar_url,
       },
@@ -98,7 +129,7 @@ router.post('/login', rateLimit({ keyPrefix: 'login', max: 15, windowMs: 15 * 60
 router.get('/me', authenticate, async (req, res) => {
   try {
     const [rows] = await db.query(
-      'SELECT id, email, role, first_name, last_name, phone, avatar_url, email_verified, created_at FROM users WHERE id = ?',
+      'SELECT id, tenant_id, email, role, first_name, last_name, phone, avatar_url, email_verified, created_at FROM users WHERE id = ?',
       [req.user.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
@@ -106,6 +137,7 @@ router.get('/me', authenticate, async (req, res) => {
     const u = rows[0];
     const response = {
       id: u.id, email: u.email, role: u.role,
+      tenantId: u.tenant_id,
       firstName: u.first_name, lastName: u.last_name,
       phone: u.phone, avatarUrl: u.avatar_url,
       emailVerified: u.email_verified, createdAt: u.created_at,
@@ -119,6 +151,134 @@ router.get('/me', authenticate, async (req, res) => {
     res.json(response);
   } catch (err) {
     console.error('Me error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/forgot-password — request password reset (no auth)
+router.post('/forgot-password', ...spamProtect({ keyPrefix: 'forgot', rateLimitMax: 5, rateLimitSettingKey: 'spam_rate_limit_max_forgot', minTimingMs: 2000 }), async (req, res) => {
+  const { email } = req.body;
+  if (!email || typeof email !== 'string' || !email.trim()) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+  const tenantId = req.tenant?.id || 1;
+  try {
+    const [rows] = await db.query('SELECT id, email, first_name FROM users WHERE email = ? AND tenant_id = ? AND is_active = TRUE', [email.trim().toLowerCase(), tenantId]);
+    // Always return success to prevent email enumeration
+    if (rows.length === 0) {
+      return res.json({ message: 'If an account exists with that email, you will receive a password reset link.' });
+    }
+    const user = rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await db.query(
+      'INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [user.id, token, expiresAt]
+    );
+    const resetUrl = `${FRONTEND_URL()}/#reset/${token}`;
+    setImmediate(() => {
+      sendPasswordResetEmail({ email: user.email, firstName: user.first_name }, resetUrl, tenantId)
+        .catch(err => console.error('[EMAIL] Password reset failed:', err.message));
+    });
+    res.json({ message: 'If an account exists with that email, you will receive a password reset link.' });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/reset-password — set new password with token (no auth)
+router.post('/reset-password', ...spamProtect({ keyPrefix: 'reset', rateLimitMax: 10, rateLimitSettingKey: 'spam_rate_limit_max_reset', minTimingMs: 2000 }), async (req, res) => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'Valid token and new password required (min 6 characters)' });
+  }
+  try {
+    const [rows] = await db.query(
+      `SELECT prt.id, prt.user_id, u.email, u.first_name, u.tenant_id FROM password_reset_tokens prt
+       JOIN users u ON u.id = prt.user_id
+       WHERE prt.token = ? AND prt.used_at IS NULL AND prt.expires_at > NOW()`,
+      [token]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired reset link. Please request a new one.' });
+    }
+    const { user_id, tenant_id } = rows[0];
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, user_id]);
+    await db.query('UPDATE password_reset_tokens SET used_at = NOW() WHERE token = ?', [token]);
+    audit({ tenantId: tenant_id, userId: user_id, action: 'password_reset', ipAddress: req.ip || req.connection?.remoteAddress }).catch(() => {});
+    res.json({ message: 'Password has been reset. You can now sign in.' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/verify/:token — verify email (no auth)
+router.post('/verify/:token', ...spamProtect({ keyPrefix: 'verify', rateLimitMax: 20, rateLimitSettingKey: 'spam_rate_limit_max_verify', minTimingMs: 1000 }), async (req, res) => {
+  const { token } = req.params;
+  if (!token) return res.status(400).json({ error: 'Token required' });
+  try {
+    const [rows] = await db.query(
+      `SELECT prt.user_id, u.email FROM email_verification_tokens prt
+       JOIN users u ON u.id = prt.user_id
+       WHERE prt.token = ? AND prt.used_at IS NULL AND prt.expires_at > NOW()`,
+      [token]
+    );
+    if (rows.length === 0) {
+      return res.status(400).json({ error: 'Invalid or expired verification link. Please request a new one.' });
+    }
+    const { user_id } = rows[0];
+    await db.query('UPDATE users SET email_verified = TRUE WHERE id = ?', [user_id]);
+    await db.query('UPDATE email_verification_tokens SET used_at = NOW() WHERE token = ?', [token]);
+    res.json({ message: 'Email verified successfully. You can now sign in.' });
+  } catch (err) {
+    console.error('Verify email error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/resend-verification — resend verification email (authenticated)
+router.post('/resend-verification', authenticate, async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT id, email, first_name, tenant_id FROM users WHERE id = ?', [req.user.id]);
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    const u = rows[0];
+    if (u.email_verified) return res.json({ message: 'Email is already verified.' });
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await db.query('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [u.id, token, expiresAt]);
+    const verifyUrl = `${FRONTEND_URL()}/#verify/${token}`;
+    setImmediate(() => {
+      sendEmailVerification({ email: u.email, firstName: u.first_name }, verifyUrl, u.tenant_id)
+        .catch(err => console.error('[EMAIL] Resend verification failed:', err.message));
+    });
+    res.json({ message: 'Verification email sent. Check your inbox.' });
+  } catch (err) {
+    console.error('Resend verification error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/auth/refresh — exchange refresh token for new access token
+router.post('/refresh', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
+  try {
+    const [rows] = await db.query(
+      `SELECT rt.user_id, u.id, u.tenant_id, u.email, u.role, u.first_name, u.last_name, u.phone, u.avatar_url
+       FROM refresh_tokens rt JOIN users u ON u.id = rt.user_id
+       WHERE rt.token = ? AND rt.expires_at > NOW() AND u.is_active = TRUE`,
+      [refreshToken]
+    );
+    if (!rows.length) return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    const user = rows[0];
+    const token = generateToken(user);
+    res.json({ token, expiresIn: 7 * 24 * 60 * 60 });
+  } catch (err) {
+    console.error('Refresh error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -140,7 +300,7 @@ router.put('/password', authenticate, async (req, res) => {
     setImmediate(async () => {
       try {
         const [u] = await db.query('SELECT email, first_name FROM users WHERE id = ?', [req.user.id]);
-        if (u.length) sendPasswordChangedEmail({ email: u[0].email, firstName: u[0].first_name });
+        if (u.length) sendPasswordChangedEmail({ email: u[0].email, firstName: u[0].first_name }, req.tenant?.id || 1);
       } catch (err) { console.error('[EMAIL] Password change email failed:', err.message); }
     });
 

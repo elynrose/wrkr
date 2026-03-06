@@ -42,7 +42,8 @@ router.post('/decline/:token', async (req, res) => {
 // POST /api/matching/run/:leadId — admin: manually trigger matching for a lead
 router.post('/run/:leadId', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const results = await matchAndNotify(parseInt(req.params.leadId));
+    const tid = req.tenant?.id || 1;
+    const results = await matchAndNotify(parseInt(req.params.leadId), tid);
     res.json({ matched: results.length, results });
   } catch (err) {
     console.error('POST /matching/run error:', err);
@@ -100,15 +101,17 @@ router.get('/my-leads', authenticate, requireRole('pro'), async (req, res) => {
               l.phone AS customer_phone, l.zip, l.city_name, l.description,
               l.urgency, l.budget_min, l.budget_max, l.property_type,
               l.status AS lead_status, l.claim_count, l.max_claims,
-              l.lead_value, l.created_at AS lead_created_at
+              l.lead_value, l.created_at AS lead_created_at,
+              lc.id AS claim_id, lc.notes AS claim_notes
        FROM lead_matches lm
        JOIN leads l ON lm.lead_id = l.id
+       LEFT JOIN lead_claims lc ON lc.lead_id = l.id AND lc.pro_id = ?
        WHERE lm.pro_id = ?
        ORDER BY
          FIELD(lm.status, 'notified','viewed','pending','accepted','declined','expired'),
          lm.created_at DESC
        LIMIT ? OFFSET ?`,
-      [pro.id, limitNum, offset]
+      [pro.id, pro.id, limitNum, offset]
     );
 
     res.json({ leads: rows, total, page: pageNum, limit: limitNum });
@@ -121,6 +124,7 @@ router.get('/my-leads', authenticate, requireRole('pro'), async (req, res) => {
 // GET /api/matching/stats — admin: matching overview
 router.get('/stats', authenticate, requireRole('admin'), async (req, res) => {
   try {
+    const tid = req.tenant?.id || 1;
     const [[totals]] = await db.query(`
       SELECT
         COUNT(*) AS total_matches,
@@ -131,9 +135,11 @@ router.get('/stats', authenticate, requireRole('admin'), async (req, res) => {
         SUM(status = 'viewed') AS viewed,
         SUM(status = 'notified') AS notified_pending
       FROM lead_matches
-    `);
+      WHERE tenant_id = ?
+    `, [tid]);
     const [[recent]] = await db.query(
-      "SELECT COUNT(DISTINCT lead_id) AS leads_matched_24h FROM lead_matches WHERE created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)"
+      "SELECT COUNT(DISTINCT lead_id) AS leads_matched_24h FROM lead_matches WHERE tenant_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+      [tid]
     );
     res.json({ ...totals, ...recent });
   } catch (err) {

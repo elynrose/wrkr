@@ -25,6 +25,26 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/categories/admin-list — authenticated, tenant-scoped flat list for admin dashboard
+router.get('/admin-list', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
+  try {
+    const [cats] = await db.query('SELECT * FROM categories WHERE tenant_id = ? ORDER BY sort_order ASC', [tid]);
+    const [svcs] = await db.query('SELECT * FROM services WHERE tenant_id = ? ORDER BY review_count DESC', [tid]);
+    const tree = cats
+      .filter(c => !c.parent_id)
+      .map(parent => ({
+        ...parent,
+        children: cats.filter(c => c.parent_id === parent.id),
+        services: svcs.filter(s => s.category_id === parent.id),
+      }));
+    res.json(tree);
+  } catch (err) {
+    console.error('GET /categories/admin-list error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // GET /api/categories/:slug
 router.get('/:slug', async (req, res) => {
   const tid = req.tenant?.id || 1;

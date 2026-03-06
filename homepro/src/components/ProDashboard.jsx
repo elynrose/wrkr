@@ -15,8 +15,10 @@ import { useAuth } from '../context/AuthContext';
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const tok = () => localStorage.getItem('hp_token');
 const api = {
-  get:  (p) => fetch(`${BASE}${p}`, { headers: { Authorization: `Bearer ${tok()}` } }).then(r => r.json()),
-  post: (p, b) => fetch(`${BASE}${p}`, { method: 'POST', headers: { Authorization: `Bearer ${tok()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()),
+  get:   (p) => fetch(`${BASE}${p}`, { headers: { Authorization: `Bearer ${tok()}` } }).then(r => r.json()),
+  post:  (p, b) => fetch(`${BASE}${p}`, { method: 'POST', headers: { Authorization: `Bearer ${tok()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()),
+  patch: (p, b) => fetch(`${BASE}${p}`, { method: 'PATCH', headers: { Authorization: `Bearer ${tok()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()),
+  put:   (p, b) => fetch(`${BASE}${p}`, { method: 'PUT', headers: { Authorization: `Bearer ${tok()}`, 'Content-Type': 'application/json' }, body: JSON.stringify(b) }).then(r => r.json()),
 };
 
 const MATCH_STATUS = {
@@ -75,6 +77,10 @@ export default function ProDashboard({ onProSignup }) {
   const [filter, setFilter] = useState('all');
   const [claiming, setClaiming] = useState(null);
   const [expandedLead, setExpandedLead] = useState(null);
+  const [editingDescLeadId, setEditingDescLeadId] = useState(null);
+  const [editingNotesLeadId, setEditingNotesLeadId] = useState(null);
+  const [savingField, setSavingField] = useState(null);
+  const [editOriginal, setEditOriginal] = useState({});
 
   const [creditData, setCreditData] = useState(null);
   const [bundles, setBundles] = useState([]);
@@ -357,14 +363,39 @@ export default function ProDashboard({ onProSignup }) {
 
                     {/* Expanded details */}
                     {isExpanded && (
-                      <div style={{ padding: '0 20px 20px', borderTop: `1px solid ${border}` }}>
+                      <div style={{ padding: '0 20px 20px', borderTop: `1px solid ${border}` }} onClick={e => e.stopPropagation()}>
                         <div style={{ paddingTop: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                          {lead.description && (
-                            <div style={{ gridColumn: '1 / -1' }}>
-                              <label style={{ fontSize: 11, fontWeight: 700, color: ts, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project Details</label>
-                              <p style={{ fontSize: 13, color: tp, lineHeight: 1.6, marginTop: 4 }}>{lead.description}</p>
-                            </div>
-                          )}
+                          {/* Project Details — inline editable when claimed */}
+                          <div style={{ gridColumn: '1 / -1' }}>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: ts, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Project Details</label>
+                            {editingDescLeadId === lead.lead_id ? (
+                              <div style={{ marginTop: 6 }}>
+                                <textarea value={lead.description ?? ''} onChange={e => setLeads(prev => prev.map(l => l.lead_id === lead.lead_id ? { ...l, description: e.target.value } : l))}
+                                  style={{ width: '100%', minHeight: 80, padding: 10, fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: dm ? '#1e293b' : '#f8fafc', color: tp, resize: 'vertical' }}
+                                  placeholder="Project description..." />
+                                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                  <button onClick={async () => {
+                                    setSavingField('desc');
+                                    try {
+                                      await api.patch(`/leads/${lead.lead_id}`, { description: lead.description ?? '' });
+                                      setEditingDescLeadId(null);
+                                    } catch (_) {}
+                                    setSavingField(null);
+                                  }} disabled={savingField === 'desc'} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, cursor: savingField ? 'not-allowed' : 'pointer' }}>
+                                    {savingField === 'desc' ? 'Saving...' : 'Save'}
+                                  </button>
+                                  <button onClick={() => { setLeads(prev => prev.map(l => l.lead_id === lead.lead_id ? { ...l, description: editOriginal[lead.lead_id] ?? l.description } : l)); setEditingDescLeadId(null); }} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'transparent', color: ts, border: `1px solid ${border}`, borderRadius: 6, cursor: 'pointer' }}>Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p style={{ fontSize: 13, color: tp, lineHeight: 1.6, marginTop: 4 }}>
+                                {lead.description || '—'}
+                                {showContact && (
+                                  <button type="button" onClick={() => { setEditOriginal(prev => ({ ...prev, [lead.lead_id]: lead.description })); setEditingDescLeadId(lead.lead_id); }} style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-primary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Edit</button>
+                                )}
+                              </p>
+                            )}
+                          </div>
                           <DetailField label="Urgency" value={URGENCY_LABEL[lead.urgency] || lead.urgency || '—'} icon={faClock} dm={dm} />
                           <DetailField label="Property" value={lead.property_type || 'Residential'} icon={faHome} dm={dm} />
                           {(lead.budget_min || lead.budget_max) && (
@@ -373,6 +404,38 @@ export default function ProDashboard({ onProSignup }) {
                           <DetailField label="Match Score" value={`${lead.match_score}/100`} icon={faStar} dm={dm} />
                           <DetailField label="Lead Value" value={`$${lead.lead_value || '—'}`} icon={faCircleDollarToSlot} dm={dm} />
                           <DetailField label="Lead Created" value={new Date(lead.lead_created_at).toLocaleDateString()} icon={faBriefcase} dm={dm} />
+
+                          {/* My notes — inline editable when claimed */}
+                          {showContact && (
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: ts, textTransform: 'uppercase', letterSpacing: '0.04em' }}>My notes</label>
+                              {editingNotesLeadId === lead.lead_id ? (
+                                <div style={{ marginTop: 6 }}>
+                                  <textarea value={lead.claim_notes ?? ''} onChange={e => setLeads(prev => prev.map(l => l.lead_id === lead.lead_id ? { ...l, claim_notes: e.target.value } : l))}
+                                    style={{ width: '100%', minHeight: 60, padding: 10, fontSize: 13, border: `1px solid ${border}`, borderRadius: 8, background: dm ? '#1e293b' : '#f8fafc', color: tp, resize: 'vertical' }}
+                                    placeholder="Your private notes on this lead..." />
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                                    <button onClick={async () => {
+                                      setSavingField('notes');
+                                      try {
+                                        await api.put(`/leads/${lead.lead_id}/pro-notes`, { notes: lead.claim_notes ?? '' });
+                                        setEditingNotesLeadId(null);
+                                      } catch (_) {}
+                                      setSavingField(null);
+                                    }} disabled={savingField === 'notes'} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'var(--color-primary)', color: '#fff', border: 'none', borderRadius: 6, cursor: savingField ? 'not-allowed' : 'pointer' }}>
+                                      {savingField === 'notes' ? 'Saving...' : 'Save'}
+                                    </button>
+                                    <button onClick={() => { setLeads(prev => prev.map(l => l.lead_id === lead.lead_id ? { ...l, claim_notes: editOriginal[`notes_${lead.lead_id}`] ?? l.claim_notes } : l)); setEditingNotesLeadId(null); }} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'transparent', color: ts, border: `1px solid ${border}`, borderRadius: 6, cursor: 'pointer' }}>Cancel</button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p style={{ fontSize: 13, color: tp, lineHeight: 1.6, marginTop: 4 }}>
+                                  {lead.claim_notes || 'No notes yet.'}
+                                  <button type="button" onClick={() => { setEditOriginal(prev => ({ ...prev, [`notes_${lead.lead_id}`]: lead.claim_notes })); setEditingNotesLeadId(lead.lead_id); }} style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-primary)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Edit</button>
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           {/* Customer contact — only show if claimed */}
                           {showContact && (

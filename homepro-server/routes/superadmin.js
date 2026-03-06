@@ -8,6 +8,7 @@ const db       = require('../db');
 const bcrypt   = require('bcryptjs');
 const { authenticate } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/tenant');
+const { audit } = require('../services/audit');
 
 // ── Auth guard ─────────────────────────────────────────────
 function requireSuperAdmin(req, res, next) {
@@ -204,9 +205,11 @@ router.patch('/tenants/:id', async (req, res) => {
     if (status !== undefined) { updates.push('status = ?'); params.push(status); }
     if (plan !== undefined) { updates.push('plan = ?'); params.push(plan); }
     if (!updates.length) return res.status(400).json({ error: 'No fields to update' });
+    const [[old]] = await db.query('SELECT name, custom_domain, status, plan FROM tenants WHERE id = ?', [id]);
     params.push(id);
     await db.query(`UPDATE tenants SET ${updates.join(', ')} WHERE id = ?`, params);
     clearTenantCache();
+    audit({ tenantId: null, userId: req.user?.id, action: 'tenant_update', entityType: 'tenant', entityId: parseInt(id), oldValues: old, newValues: { name: name ?? old?.name, customDomain: customDomain ?? old?.custom_domain, status: status ?? old?.status, plan: plan ?? old?.plan }, ipAddress: req.ip }).catch(() => {});
     res.json({ message: 'Tenant updated' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Domain already registered' });
@@ -219,8 +222,10 @@ router.delete('/tenants/:id', async (req, res) => {
   const id = parseInt(req.params.id);
   if (id === 1) return res.status(400).json({ error: 'Cannot delete the default tenant' });
   try {
+    const [[t]] = await db.query('SELECT name, slug FROM tenants WHERE id = ?', [id]);
     await db.query("UPDATE tenants SET status = 'suspended' WHERE id = ?", [id]);
     clearTenantCache();
+    audit({ tenantId: null, userId: req.user?.id, action: 'tenant_suspend', entityType: 'tenant', entityId: id, newValues: { name: t?.name, slug: t?.slug }, ipAddress: req.ip }).catch(() => {});
     res.json({ message: 'Tenant suspended' });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });

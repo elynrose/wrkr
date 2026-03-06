@@ -23,22 +23,24 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const navLinks = [
-    { key: 'home',          label: 'Find a Pro',    icon: faHome },
-    { key: 'how',           label: 'How It Works',  icon: faShieldHalved },
-    { key: 'for-pros',      label: 'For Pros',      icon: faBriefcase },
-    { key: 'pro-dashboard', label: 'Pro Dashboard', icon: faChartLine },
-  ];
-
-  if (user?.role === 'admin') {
-    navLinks.push({ key: 'admin', label: 'Admin', icon: faGear });
-  }
+  const isStaff = user && (user.role === 'pro' || user.role === 'admin' || user.role === 'superadmin');
+  const navLinks = isStaff
+    ? [
+        { key: 'home', label: 'Home', icon: faHome },
+        ...(user.role === 'pro' ? [{ key: 'pro-dashboard', label: 'Pro Dashboard', icon: faChartLine }] : []),
+        ...(user.role === 'admin' || user.role === 'superadmin' ? [{ key: 'admin', label: 'Admin', icon: faGear }] : []),
+      ]
+    : [
+        { key: 'home',          label: 'Find a Pro',    icon: faHome },
+        { key: 'how',           label: 'How It Works',  icon: faShieldHalved },
+        { key: 'for-pros',      label: 'For Pros',      icon: faBriefcase },
+      ];
 
   const initials = user
     ? ((user.firstName || '')[0] || '') + ((user.lastName || '')[0] || '') || user.email?.[0]?.toUpperCase()
     : '';
 
-  const roleColors = { admin: '#ef4444', pro: 'var(--color-primary)', consumer: '#22c55e' };
+  const roleColors = { admin: '#ef4444', superadmin: '#7c3aed', pro: 'var(--color-primary)', consumer: '#22c55e' };
 
   return (
     <header style={{
@@ -121,7 +123,7 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
                       <div style={{ fontSize: 11, color: '#9ca3af' }}>{user.email}</div>
                     </div>
 
-                    {user.role === 'admin' && (
+                    {(user.role === 'admin' || user.role === 'superadmin') && (
                       <DropItem icon={faGear} label="Admin Dashboard"
                         onClick={() => { onShowView('admin'); setDropOpen(false); }}
                         darkMode={darkMode} />

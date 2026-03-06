@@ -16,15 +16,22 @@ export default class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
+      const err = this.state.error;
+      const message = err?.message || (typeof err === 'string' ? err : 'Unknown error');
       return (
         <div style={{
           minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
           padding: 24, fontFamily: 'system-ui, sans-serif', background: '#f1f5f9', color: '#1e293b', textAlign: 'center',
         }}>
           <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Something went wrong</h1>
-          <p style={{ fontSize: 14, color: '#64748b', marginBottom: 16, maxWidth: 400 }}>
+          <p style={{ fontSize: 14, color: '#64748b', marginBottom: 8, maxWidth: 400 }}>
             The app hit an error. Try refreshing the page. If the backend is not running, start it from <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>homepro-server</code> with <code style={{ background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>node server.js</code>.
           </p>
+          {message && (
+            <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, maxWidth: 480, wordBreak: 'break-word' }}>
+              {message}
+            </p>
+          )}
           <button
             onClick={() => window.location.reload()}
             style={{

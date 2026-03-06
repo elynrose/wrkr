@@ -15,13 +15,13 @@ async function addCredits(proId, userId, amount, type, description, refId, refTy
   const q = conn || db;
 
   await q.query('UPDATE pros SET lead_credits = lead_credits + ? WHERE id = ?', [amount, proId]);
-  const [[pro]] = await q.query('SELECT lead_credits FROM pros WHERE id = ?', [proId]);
+  const [[pro]] = await q.query('SELECT lead_credits, tenant_id FROM pros WHERE id = ?', [proId]);
   const balance = pro.lead_credits;
 
   await q.query(
-    `INSERT INTO credit_transactions (pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [proId, userId, type, amount, balance, description, refId || null, refType || null]
+    `INSERT INTO credit_transactions (tenant_id, pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [pro.tenant_id || 1, proId, userId, type, amount, balance, description, refId || null, refType || null]
   );
 
   return balance;
@@ -34,13 +34,13 @@ async function addCredits(proId, userId, amount, type, description, refId, refTy
 async function deductCredits(proId, userId, amount, type, description, refId, refType, conn) {
   const q = conn || db;
 
-  const [[pro]] = await q.query('SELECT lead_credits, subscription_plan FROM pros WHERE id = ?', [proId]);
+  const [[pro]] = await q.query('SELECT lead_credits, subscription_plan, tenant_id FROM pros WHERE id = ?', [proId]);
 
   if (pro.subscription_plan === 'enterprise') {
     await q.query(
-      `INSERT INTO credit_transactions (pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
-       VALUES (?,?,?,?,?,?,?,?)`,
-      [proId, userId, type, -amount, pro.lead_credits, `${description} (enterprise — unlimited)`, refId || null, refType || null]
+      `INSERT INTO credit_transactions (tenant_id, pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+      [pro.tenant_id || 1, proId, userId, type, -amount, pro.lead_credits, `${description} (enterprise — unlimited)`, refId || null, refType || null]
     );
     return pro.lead_credits;
   }
@@ -53,9 +53,9 @@ async function deductCredits(proId, userId, amount, type, description, refId, re
   const newBalance = pro.lead_credits - amount;
 
   await q.query(
-    `INSERT INTO credit_transactions (pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
-     VALUES (?,?,?,?,?,?,?,?)`,
-    [proId, userId, type, -amount, newBalance, description, refId || null, refType || null]
+    `INSERT INTO credit_transactions (tenant_id, pro_id, user_id, type, amount, balance_after, description, reference_id, reference_type)
+     VALUES (?,?,?,?,?,?,?,?,?)`,
+    [pro.tenant_id || 1, proId, userId, type, -amount, newBalance, description, refId || null, refType || null]
   );
 
   return newBalance;

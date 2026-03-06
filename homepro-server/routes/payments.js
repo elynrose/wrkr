@@ -8,12 +8,13 @@ const { getSiteConfig } = require('../services/siteConfig');
 
 // POST /api/payments/create-checkout — Stripe Checkout for subscription
 router.post('/create-checkout', authenticate, requireRole('pro'), async (req, res) => {
-  const stripe = await getStripe();
+  const tid = req.tenant?.id || 1;
+  const stripe = await getStripe(tid);
   if (!stripe) return res.status(503).json({ error: 'Stripe is not configured. Set STRIPE_SECRET_KEY in Settings.' });
 
   const { planSlug, billingPeriod } = req.body;
   try {
-    const [plans] = await db.query('SELECT * FROM subscription_plans WHERE slug = ?', [planSlug]);
+    const [plans] = await db.query('SELECT * FROM subscription_plans WHERE slug = ? AND tenant_id = ?', [planSlug, tid]);
     if (!plans.length) return res.status(404).json({ error: 'Plan not found' });
     const plan = plans[0];
 
@@ -53,7 +54,8 @@ router.post('/create-checkout', authenticate, requireRole('pro'), async (req, re
 
 // POST /api/payments/buy-credits — one-time lead credit purchase
 router.post('/buy-credits', authenticate, requireRole('pro'), async (req, res) => {
-  const stripe = await getStripe();
+  const tid = req.tenant?.id || 1;
+  const stripe = await getStripe(tid);
   if (!stripe) return res.status(503).json({ error: 'Stripe is not configured' });
 
   const { credits } = req.body;
@@ -61,6 +63,7 @@ router.post('/buy-credits', authenticate, requireRole('pro'), async (req, res) =
   const pricePerCredit = 3.00;
 
   try {
+    const tid = req.tenant?.id || 1;
     const [pros] = await db.query('SELECT * FROM pros WHERE user_id = ?', [req.user.id]);
     if (!pros.length) return res.status(404).json({ error: 'Pro not found' });
     const pro = pros[0];
@@ -72,7 +75,7 @@ router.post('/buy-credits', authenticate, requireRole('pro'), async (req, res) =
       await db.query('UPDATE pros SET stripe_customer_id = ? WHERE id = ?', [customerId, pro.id]);
     }
 
-    const site = await getSiteConfig();
+    const site = await getSiteConfig(tid);
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: 'payment',

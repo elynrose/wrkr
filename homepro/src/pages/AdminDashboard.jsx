@@ -68,8 +68,8 @@ function Input({ label, value, onChange, type = 'text', placeholder, dm, multili
   );
 }
 
-function Card({ children, dm, style: extra }) {
-  return <div style={{ background: dm ? '#111827' : '#fff', border: `1px solid ${dm ? '#1f2937' : '#e2e8f0'}`, borderRadius: 'var(--border-radius)', ...extra }}>{children}</div>;
+function Card({ children, dm, style: extra, id }) {
+  return <div id={id} style={{ background: dm ? '#111827' : '#fff', border: `1px solid ${dm ? '#1f2937' : '#e2e8f0'}`, borderRadius: 'var(--border-radius)', ...extra }}>{children}</div>;
 }
 
 function Table({ headers, children, dm }) {
@@ -171,6 +171,11 @@ export default function AdminDashboard({ onShowLead }) {
   const [testStripeSending, setTestStripeSending] = useState(false);
   const [testStripeResult, setTestStripeResult] = useState(null);
 
+  // Users sub-tab (superadmin gets a Tenants sub-tab)
+  const [usersSubTab, setUsersSubTab] = useState('list');
+  // Superadmin: which tenant's users to show in the list (0 = current/default)
+  const [usersTenantFilter, setUsersTenantFilter] = useState(0);
+
   // Tenant management state (superadmin only)
   const [tenants, setTenants] = useState([]);
   const [tenantsTotal, setTenantsTotal] = useState(0);
@@ -178,6 +183,8 @@ export default function AdminDashboard({ onShowLead }) {
   const tenantsLimit = 20;
   const [editTenant, setEditTenant] = useState(null);
   const [newTenant, setNewTenant] = useState(null);
+  const [showDomainHelp, setShowDomainHelp] = useState(false);
+  const [tenantSlug, setTenantSlug] = useState('default');
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
 
@@ -186,9 +193,9 @@ export default function AdminDashboard({ onShowLead }) {
     Promise.all([
       api.get(`/users?page=1&limit=${usersLimit}${roleParam}`),
       api.get(`/leads?page=1&limit=${leadsLimit}`),
-      api.get('/categories'),
-      api.get('/services?all=true'),
-      api.get('/subscriptions/plans?all=true'),
+      api.get('/categories/admin-list'),
+      api.get('/services/admin-list?all=true'),
+      api.get('/subscriptions/admin-plans?all=true'),
       api.get('/settings/all'),
       api.get('/pages?all=true'),
       api.get('/templates'),
@@ -215,20 +222,42 @@ export default function AdminDashboard({ onShowLead }) {
         services: (Array.isArray(s) ? s : []).length,
       });
     }).catch(console.error).finally(() => setLoading(false));
+
+    // Superadmin: preload tenant list for the user-filter dropdown
+    if (user?.role === 'superadmin') {
+      api.get('/superadmin/tenants?page=1&limit=100')
+        .then(d => setTenants(d.tenants ?? []))
+        .catch(() => {});
+    }
   }, []);
 
-  // Refetch users when page or role filter changes (users tab)
+  // Tenant slug for Preview website link (opens current tenant's public home)
+  useEffect(() => {
+    api.get('/tenant/config')
+      .then(d => setTenantSlug(d.tenant?.slug || 'default'))
+      .catch(() => {});
+  }, []);
+
+  // Refetch users when page, role filter, or tenant filter changes (users tab)
   useEffect(() => {
     if (tab !== 'users') return;
     const roleParam = userRoleFilter && userRoleFilter !== 'all' ? `&role=${userRoleFilter}` : '';
-    api.get(`/users?page=${usersPage}&limit=${usersLimit}${roleParam}`)
+    const tenantParam = user?.role === 'superadmin' ? `&tenantId=${usersTenantFilter}` : '';
+    api.get(`/users?page=${usersPage}&limit=${usersLimit}${roleParam}${tenantParam}`)
       .then(u => {
         const list = u.users || u || [];
         setUsers(list);
         setUsersTotal(u.total ?? list.length);
       })
       .catch(() => {});
-  }, [tab, usersPage, userRoleFilter]);
+  }, [tab, usersPage, userRoleFilter, usersTenantFilter]);
+
+  // Reset tab if non-superadmin has a superadmin-only tab selected (Categories, Pages, Templates)
+  useEffect(() => {
+    if (user?.role !== 'superadmin' && ['categories', 'pages', 'templates'].includes(tab)) {
+      setTab('overview');
+    }
+  }, [user?.role, tab]);
 
   // Refetch leads when page changes (leads tab)
   useEffect(() => {
@@ -254,16 +283,16 @@ export default function AdminDashboard({ onShowLead }) {
       .catch(() => {});
   }, [tab, reviewsPage, reviewFilter]);
 
-  // Load tenants when Tenants tab is open (superadmin)
+  // Load tenants when Tenants sub-tab is open under Users (superadmin)
   useEffect(() => {
-    if (tab !== 'tenants') return;
+    if (tab !== 'users' || usersSubTab !== 'tenants') return;
     api.get(`/superadmin/tenants?page=${tenantsPage}&limit=${tenantsLimit}`)
       .then(d => {
         setTenants(d.tenants ?? []);
         setTenantsTotal(d.total ?? 0);
       })
       .catch(() => {});
-  }, [tab, tenantsPage]);
+  }, [tab, usersSubTab, tenantsPage]);
 
   // Load steps when Pages > Homepage Steps sub-tab is opened
   useEffect(() => {
@@ -346,6 +375,7 @@ export default function AdminDashboard({ onShowLead }) {
     }
     setSaving(false);
     flash(`${group} settings saved!`);
+    window.dispatchEvent(new CustomEvent('app:settings-updated'));
   };
   const updateSetting = (key, val) => setSettings(ss => ss.map(s => s.setting_key === key ? { ...s, setting_value: val } : s));
   const getSettingVal = (key) => settings.find(s => s.setting_key === key)?.setting_value || '';
@@ -358,9 +388,21 @@ export default function AdminDashboard({ onShowLead }) {
       setPlans(ps => ps.map(p => p.id === editPlan.id ? { ...p, ...editPlan } : p));
     } else {
       const r = await api.post('/subscriptions/plans', editPlan);
-      setPlans(ps => [...ps, { ...editPlan, id: r.id }]);
+      setPlans(ps => [...ps, {
+        ...editPlan, id: r.id,
+        price_monthly: editPlan.priceMonthly || 0,
+        price_yearly: editPlan.priceYearly || 0,
+        lead_credits: editPlan.leadCredits || 0,
+        max_service_areas: editPlan.maxServiceAreas || 5,
+        max_services: editPlan.maxServices || 3,
+        stripe_price_id: editPlan.stripePriceId || null,
+        is_popular: editPlan.isPopular ? 1 : 0,
+        is_active: editPlan.isActive !== false ? 1 : 0,
+        sort_order: editPlan.sortOrder || 0,
+      }]);
     }
     setEditPlan(null); setSaving(false); flash('Plan saved!');
+    window.dispatchEvent(new CustomEvent('app:data-updated'));
   };
   const deletePlan = async (id) => {
     if (!confirm('Delete this plan?')) return;
@@ -380,6 +422,7 @@ export default function AdminDashboard({ onShowLead }) {
       setCategories(cs => [...cs, { ...editCat, id: r.id, services: [] }]);
     }
     setEditCat(null); setSaving(false); flash('Category saved!');
+    window.dispatchEvent(new CustomEvent('app:data-updated'));
   };
   const deleteCat = async (id) => {
     if (!confirm('Delete this category?')) return;
@@ -397,9 +440,24 @@ export default function AdminDashboard({ onShowLead }) {
       setServices(ss => ss.map(s => s.id === editSvc.id ? { ...s, ...editSvc } : s));
     } else {
       const r = await api.post('/services', editSvc);
-      setServices(ss => [...ss, { ...editSvc, id: r.id }]);
+      const cat = categories.find(c => c.id === (editSvc.categoryId || editSvc.category_id));
+      setServices(ss => [...ss, {
+        ...editSvc,
+        id: r.id,
+        category_id: editSvc.categoryId || editSvc.category_id || null,
+        category_name: cat?.name || '',
+        category_slug: cat?.slug || '',
+        icon_class: editSvc.iconClass || editSvc.icon_class || 'faWrench',
+        card_image_url: editSvc.cardImageUrl || editSvc.card_image_url || null,
+        min_price: editSvc.minPrice || editSvc.min_price || null,
+        price_unit: editSvc.priceUnit || editSvc.price_unit || 'per job',
+        avg_rating: editSvc.avgRating || 4.5,
+        review_count: editSvc.reviewCount || 0,
+        is_active: 1,
+      }]);
     }
     setEditSvc(null); setSaving(false); flash('Service saved!');
+    window.dispatchEvent(new CustomEvent('app:data-updated'));
   };
   const deleteSvc = async (id) => {
     if (!confirm('Delete this service?')) return;
@@ -422,6 +480,7 @@ export default function AdminDashboard({ onShowLead }) {
       setSteps(ss => ss.map(s => s.id === editStep.id ? { ...s, ...editStep } : s));
       setEditStep(null);
       flash('Step saved');
+      window.dispatchEvent(new CustomEvent('app:data-updated'));
     } catch (e) { flash('Failed to save step'); }
     setSaving(false);
   };
@@ -430,18 +489,18 @@ export default function AdminDashboard({ onShowLead }) {
   const tp = dm ? '#f1f5f9' : '#1e293b';
   const ts = dm ? '#94a3b8' : '#64748b';
 
+  const isSuperAdmin = user?.role === 'superadmin';
   const tabs = [
     { key: 'overview',    label: 'Overview',    icon: faShieldHalved },
     { key: 'users',       label: 'Users',       icon: faUsers },
     { key: 'leads',       label: 'Leads',       icon: faClipboardList },
     { key: 'packages',    label: 'Packages',    icon: faCubes },
-    { key: 'categories',  label: 'Categories',  icon: faTag },
+    ...(isSuperAdmin ? [{ key: 'categories',  label: 'Categories',  icon: faTag }] : []),
     { key: 'services',    label: 'Services',    icon: faLayerGroup },
     { key: 'reviews',     label: 'Reviews',     icon: faStar },
-    { key: 'pages',       label: 'Pages',       icon: faFileLines },
-    { key: 'templates',   label: 'Templates',   icon: faBell },
+    ...(isSuperAdmin ? [{ key: 'pages',       label: 'Pages',       icon: faFileLines }] : []),
+    ...(isSuperAdmin ? [{ key: 'templates',   label: 'Templates',   icon: faBell }] : []),
     { key: 'settings',    label: 'Settings',    icon: faGear },
-    ...(user?.role === 'superadmin' ? [{ key: 'tenants', label: 'Tenants', icon: faLayerGroup }] : []),
   ];
 
   const pagesSubTabs = [
@@ -479,9 +538,20 @@ export default function AdminDashboard({ onShowLead }) {
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
             <FontAwesomeIcon icon={faShieldHalved} style={{ color: '#ef4444', fontSize: 20 }} />
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: tp }}>Admin Dashboard</h1>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: tp }}>
+              {user?.role === 'superadmin' ? 'Super Admin Dashboard' : 'Admin Dashboard'}
+            </h1>
+            {user?.role === 'superadmin' && (
+              <span style={{ background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 9999, textTransform: 'uppercase', letterSpacing: 1 }}>Super Admin</span>
+            )}
           </div>
-          <p style={{ fontSize: 14, color: ts }}>Welcome back, {user?.firstName || 'Admin'}.</p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 14, color: ts, margin: 0 }}>Welcome back, {user?.firstName || user?.first_name || 'Admin'}.</p>
+            <a href={`/#t/${tenantSlug}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <FontAwesomeIcon icon={faEye} style={{ fontSize: 10 }} />
+              Preview website
+            </a>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -520,6 +590,24 @@ export default function AdminDashboard({ onShowLead }) {
 
         {/* ══════════ USERS ══════════ */}
         {tab === 'users' && <>
+          {/* Users sub-tabs (superadmin sees Tenants here) */}
+          {user?.role === 'superadmin' && (
+            <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: dm ? '#111827' : '#f8fafc', borderRadius: 'var(--border-radius)', padding: 3, border: `1px solid ${border}`, alignSelf: 'flex-start', width: 'fit-content' }}>
+              {[
+                { key: 'list', label: 'All Users', icon: faUsers },
+                { key: 'tenants', label: 'Tenants', icon: faLayerGroup },
+              ].map(st => (
+                <button key={st.key} onClick={() => setUsersSubTab(st.key)} style={{
+                  padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--border-radius)',
+                  border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6,
+                  background: usersSubTab === st.key ? (st.key === 'tenants' ? '#7c3aed' : 'var(--color-primary)') : 'transparent',
+                  color: usersSubTab === st.key ? '#fff' : (st.key === 'tenants' ? '#7c3aed' : ts),
+                }}><FontAwesomeIcon icon={st.icon} style={{ fontSize: 11 }} />{st.label}</button>
+              ))}
+            </div>
+          )}
+
+          {usersSubTab === 'list' && <>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 14, alignItems: 'center' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 340 }}>
               <FontAwesomeIcon icon={faSearch} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: ts, fontSize: 13 }} />
@@ -533,6 +621,15 @@ export default function AdminDashboard({ onShowLead }) {
               <option value="pro">Providers only</option>
               <option value="admin">Admins only</option>
             </select>
+            {user?.role === 'superadmin' && tenants.length > 0 && (
+              <select value={usersTenantFilter} onChange={e => { setUsersTenantFilter(parseInt(e.target.value) || 0); setUsersPage(1); }}
+                style={{ padding: '9px 12px', fontSize: 13, border: `1px solid #7c3aed`, borderRadius: 'var(--border-radius)', background: dm ? '#2d1b69' : '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>
+                <option value={0}>All Tenants</option>
+                {tenants.map(t => (
+                  <option key={t.id} value={t.id}>{t.name} ({t.slug})</option>
+                ))}
+              </select>
+            )}
             <Btn onClick={() => setEditUser({ email: '', password: '', role: 'consumer', firstName: '', lastName: '', phone: '' })}><FontAwesomeIcon icon={faPlus} />Add User</Btn>
             <span style={{ fontSize: 13, color: ts }}>Showing {filteredUsers.length} of {usersTotal} users</span>
           </div>
@@ -594,13 +691,20 @@ export default function AdminDashboard({ onShowLead }) {
             </div>
           </Card>}
 
-          <Card dm={dm}><Table headers={['ID','Name','Email','Role','Provider','Active','Last Login','Actions']} dm={dm}>
+          <Card dm={dm}><Table headers={[
+            'ID','Name','Email','Role',
+            ...(user?.role === 'superadmin' && usersTenantFilter === 0 ? ['Tenant'] : []),
+            'Provider','Active','Last Login','Actions'
+          ]} dm={dm}>
             {filteredUsers.map(u => (
               <tr key={u.id} style={{ borderBottom: `1px solid ${border}` }}>
                 <Td dm={dm}>#{u.id}</Td>
                 <Td dm={dm} fw={600}>{u.first_name || ''} {u.last_name || ''}</Td>
                 <Td dm={dm}>{u.email}</Td>
-                <Td dm={dm}><Badge color={u.role==='admin'?'#dc2626':u.role==='pro'?'#2563eb':'#16a34a'} bg={u.role==='admin'?'#fee2e2':u.role==='pro'?'#dbeafe':'#dcfce7'}>{u.role}</Badge></Td>
+                <Td dm={dm}><Badge color={u.role==='admin'?'#dc2626':u.role==='superadmin'?'#7c3aed':u.role==='pro'?'#2563eb':'#16a34a'} bg={u.role==='admin'?'#fee2e2':u.role==='superadmin'?'#ede9fe':u.role==='pro'?'#dbeafe':'#dcfce7'}>{u.role}</Badge></Td>
+                {user?.role === 'superadmin' && usersTenantFilter === 0 && (
+                  <Td dm={dm}><Badge color="#7c3aed" bg="#ede9fe">{u.tenant_name || `#${u.tenant_id}`}</Badge></Td>
+                )}
                 <Td dm={dm}>{u.role === 'pro' && u.business_name ? u.business_name : '—'}</Td>
                 <Td dm={dm}><FontAwesomeIcon icon={u.is_active ? faCheckCircle : faXmarkCircle} style={{ color: u.is_active ? '#22c55e' : '#ef4444', fontSize: 15 }} /></Td>
                 <Td dm={dm}>{u.last_login ? new Date(u.last_login).toLocaleString() : '—'}</Td>
@@ -617,6 +721,129 @@ export default function AdminDashboard({ onShowLead }) {
           </Table>
           <PaginationBar page={usersPage} total={usersTotal} limit={usersLimit} onPageChange={setUsersPage} dm={dm} />
           </Card>
+          </>}
+
+          {/* ── Tenants sub-tab (superadmin only) ── */}
+          {usersSubTab === 'tenants' && user?.role === 'superadmin' && <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Tenants ({tenantsTotal})</h3>
+            <Btn onClick={() => setNewTenant({ name: '', slug: '', customDomain: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' })}>
+              <FontAwesomeIcon icon={faPlus} /> New Tenant
+            </Btn>
+          </div>
+
+          {newTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+              <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, margin: 0 }}>Create New Tenant</h4>
+              <Btn small variant="ghost" onClick={() => setShowDomainHelp(true)}>
+                Domain Setup Instructions
+              </Btn>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Tenant Name" value={newTenant.name} onChange={v => setNewTenant({...newTenant, name: v})} dm={dm} placeholder="Acme Home Services" />
+              <Input label="Slug (unique ID)" value={newTenant.slug} onChange={v => setNewTenant({...newTenant, slug: v.toLowerCase().replace(/\s/g,'-')})} dm={dm} placeholder="acme-home" />
+              <Input label="Custom Domain (optional)" value={newTenant.customDomain} onChange={v => setNewTenant({...newTenant, customDomain: v})} dm={dm} placeholder="acmehome.com" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
+                <select value={newTenant.plan} onChange={e => setNewTenant({...newTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+              <Input label="Admin Email" value={newTenant.adminEmail} onChange={v => setNewTenant({...newTenant, adminEmail: v})} dm={dm} type="email" placeholder="admin@acmehome.com" />
+              <Input label="Admin Password" value={newTenant.adminPassword} onChange={v => setNewTenant({...newTenant, adminPassword: v})} dm={dm} type="password" />
+              <Input label="Admin First Name" value={newTenant.adminFirstName} onChange={v => setNewTenant({...newTenant, adminFirstName: v})} dm={dm} />
+              <Input label="Admin Last Name" value={newTenant.adminLastName} onChange={v => setNewTenant({...newTenant, adminLastName: v})} dm={dm} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Btn onClick={async () => {
+                if (!newTenant.name || !newTenant.slug) return flash('Name and slug are required');
+                setSaving(true);
+                try {
+                  const r = await api.post('/superadmin/tenants', { name: newTenant.name, slug: newTenant.slug, customDomain: newTenant.customDomain || undefined, plan: newTenant.plan, adminEmail: newTenant.adminEmail || undefined, adminPassword: newTenant.adminPassword || undefined, adminFirstName: newTenant.adminFirstName, adminLastName: newTenant.adminLastName });
+                  if (r.error) { flash(r.error); setSaving(false); return; }
+                  flash(`Tenant "${newTenant.name}" created! View page: /#t/${newTenant.slug}`);
+                  setNewTenant(null);
+                  const d = await api.get(`/superadmin/tenants?page=1&limit=${tenantsLimit}`);
+                  setTenants(d.tenants ?? []);
+                  setTenantsTotal(d.total ?? 0);
+                } catch (e) { flash('Failed to create tenant'); }
+                setSaving(false);
+              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Creating...' : 'Create Tenant'}</Btn>
+              <Btn variant="ghost" onClick={() => setNewTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+
+          {editTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Edit Tenant: {editTenant.name}</h4>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
+              <Input label="Tenant Name" value={editTenant.name||''} onChange={v => setEditTenant({...editTenant, name: v})} dm={dm} />
+              <Input label="Custom Domain" value={editTenant.custom_domain||''} onChange={v => setEditTenant({...editTenant, custom_domain: v})} dm={dm} placeholder="client.com" />
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Status</label>
+                <select value={editTenant.status||'active'} onChange={e => setEditTenant({...editTenant, status: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="active">Active</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
+                <select value={editTenant.plan||'starter'} onChange={e => setEditTenant({...editTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <Btn onClick={async () => {
+                setSaving(true);
+                try {
+                  await api.patch(`/superadmin/tenants/${editTenant.id}`, { name: editTenant.name, customDomain: editTenant.custom_domain || null, status: editTenant.status, plan: editTenant.plan });
+                  setTenants(ts => ts.map(t => t.id === editTenant.id ? { ...t, ...editTenant, custom_domain: editTenant.custom_domain || null } : t));
+                  setEditTenant(null);
+                  flash('Tenant updated');
+                } catch (e) { flash('Failed to update'); }
+                setSaving(false);
+              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}</Btn>
+              <Btn variant="ghost" onClick={() => setEditTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+            </div>
+          </Card>}
+
+          <Card dm={dm}>
+            <Table headers={['ID','Name','Slug','Domain','Plan','Status','Users','Leads','Created','Actions']} dm={dm}>
+              {tenants.map(t => (
+                <tr key={t.id} style={{ borderBottom: `1px solid ${border}` }}>
+                  <Td dm={dm}>{t.id}</Td>
+                  <Td dm={dm} fw={600}>{t.name}</Td>
+                  <Td dm={dm}><a href={`/#t/${t.slug}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none' }}><code style={{ fontSize: 11, background: dm?'#1e293b':'#f1f5f9', padding: '2px 6px', borderRadius: 4, color: '#3b82f6', cursor: 'pointer' }}>{t.slug}</code></a></Td>
+                  <Td dm={dm}>{t.custom_domain || <span style={{ color: ts, fontSize: 11 }}>none</span>}</Td>
+                  <Td dm={dm}><Badge color="#7c3aed" bg="#ede9fe">{t.plan}</Badge></Td>
+                  <Td dm={dm}><Badge color={t.status === 'active' ? '#16a34a' : t.status === 'suspended' ? '#dc2626' : '#d97706'} bg={t.status === 'active' ? '#dcfce7' : t.status === 'suspended' ? '#fee2e2' : '#fef9c3'}>{t.status}</Badge></Td>
+                  <Td dm={dm}>{t.user_count ?? '—'}</Td>
+                  <Td dm={dm}>{t.lead_count ?? '—'}</Td>
+                  <Td dm={dm}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}</Td>
+                  <Td dm={dm}>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <Btn small variant="ghost" onClick={() => window.open(`/#t/${t.slug}`, '_blank')} title="View tenant page"><FontAwesomeIcon icon={faEye} /></Btn>
+                      <Btn small onClick={() => setEditTenant({...t})}><FontAwesomeIcon icon={faPen} /></Btn>
+                      {t.id !== 1 && <Btn small variant="danger" onClick={async () => {
+                        if (!confirm(`Suspend tenant "${t.name}"?`)) return;
+                        await api.del(`/superadmin/tenants/${t.id}`);
+                        setTenants(ts => ts.map(x => x.id === t.id ? {...x, status: 'suspended'} : x));
+                        flash('Tenant suspended');
+                      }}><FontAwesomeIcon icon={faTrash} /></Btn>}
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+              {!tenants.length && <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: ts, fontSize: 13 }}>No tenants found</td></tr>}
+            </Table>
+            <PaginationBar page={tenantsPage} total={tenantsTotal} limit={tenantsLimit} onPageChange={setTenantsPage} dm={dm} />
+          </Card>
+          </>}
         </>}
 
         {/* ══════════ LEADS ══════════ */}
@@ -707,7 +934,7 @@ export default function AdminDashboard({ onShowLead }) {
         </>}
 
         {/* ══════════ CATEGORIES ══════════ */}
-        {tab === 'categories' && <>
+        {tab === 'categories' && isSuperAdmin && <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Categories ({categories.length})</h3>
             <Btn onClick={() => setEditCat({ name: '', slug: '', iconClass: '', description: '', tags: '', sortOrder: categories.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Category</Btn>
@@ -837,6 +1064,7 @@ export default function AdminDashboard({ onShowLead }) {
                     await api.patch(`/reviews/${r.id}`, { is_public: !r.is_public });
                     setReviews(prev => prev.map(rv => rv.id === r.id ? { ...rv, is_public: !rv.is_public } : rv));
                     flash(r.is_public ? 'Review hidden' : 'Review published');
+                    window.dispatchEvent(new CustomEvent('app:data-updated'));
                   }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: r.is_public ? '#22c55e' : '#ef4444', fontSize: 16 }} title={r.is_public ? 'Click to hide' : 'Click to publish'}>
                     <FontAwesomeIcon icon={r.is_public ? faToggleOn : faToggleOff} />
                   </button>
@@ -862,7 +1090,7 @@ export default function AdminDashboard({ onShowLead }) {
         </>}
 
         {/* ══════════ PAGES (CMS + Homepage Steps) ══════════ */}
-        {tab === 'pages' && <>
+        {tab === 'pages' && isSuperAdmin && <>
           {/* Sub-menu: CMS Pages | Homepage Steps */}
           <div style={{ display: 'flex', gap: 2, marginBottom: 20, background: dm ? '#111827' : '#e2e8f0', borderRadius: 'var(--border-radius)', padding: 4, border: `1px solid ${border}` }}>
             {pagesSubTabs.map(st => (
@@ -928,6 +1156,7 @@ export default function AdminDashboard({ onShowLead }) {
                   setPages(ps => [...ps, { ...payload, id: r.id, show_in_nav: payload.showInNav, nav_order: payload.navOrder, nav_group: payload.navGroup, updated_at: new Date().toISOString() }]);
                 }
                 setEditPage(null); setSaving(false); flash('Page saved!');
+                window.dispatchEvent(new CustomEvent('app:data-updated'));
               }} disabled={saving || !editPage.title || !editPage.slug}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save Page'}</Btn>
               <Btn variant="ghost" onClick={() => setEditPage(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
             </div>
@@ -1030,7 +1259,7 @@ export default function AdminDashboard({ onShowLead }) {
         </>}
 
         {/* ══════════ TEMPLATES ══════════ */}
-        {tab === 'templates' && <>
+        {tab === 'templates' && isSuperAdmin && <>
           {editTmpl ? (
             <Card dm={dm} style={{ padding: '24px 22px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -1092,6 +1321,7 @@ export default function AdminDashboard({ onShowLead }) {
                   });
                   setTemplates(ts => ts.map(t => t.slug === editTmpl.slug ? { ...t, ...editTmpl } : t));
                   setSaving(false); setEditTmpl(null); setTmplPreview(null); flash('Template saved!');
+                  window.dispatchEvent(new CustomEvent('app:data-updated'));
                 }} disabled={saving}>
                   <FontAwesomeIcon icon={faFloppyDisk} /> {saving ? 'Saving...' : 'Save Template'}
                 </Btn>
@@ -1172,11 +1402,81 @@ export default function AdminDashboard({ onShowLead }) {
 
         {/* ══════════ SETTINGS ══════════ */}
         {tab === 'settings' && <>
+          {/* Fixed floating menu for settings sections (mobile-friendly) */}
+          {(() => {
+            const visibleGroups = settingGroups.filter(g => settings.some(s => s.setting_group === g.key));
+            if (visibleGroups.length === 0) return null;
+            return (
+              <div
+                style={{
+                  position: 'fixed',
+                  bottom: 16,
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  zIndex: 100,
+                  width: '100%',
+                  maxWidth: 'min(480px, calc(100vw - 32px))',
+                  background: dm ? 'rgba(15, 23, 42, 0.97)' : 'rgba(255, 255, 255, 0.97)',
+                  backdropFilter: 'saturate(180%) blur(12px)',
+                  WebkitBackdropFilter: 'saturate(180%) blur(12px)',
+                  border: `1px solid ${dm ? '#334155' : 'rgba(0,0,0,0.08)'}`,
+                  borderRadius: 9999,
+                  boxShadow: dm ? '0 4px 24px rgba(0,0,0,0.4)' : '0 4px 24px rgba(0,0,0,0.12)',
+                  padding: '8px 12px',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                }}
+                className="settings-floating-menu"
+              >
+                {visibleGroups.map(g => (
+                  <a
+                    key={g.key}
+                    href={`#settings-section-${g.key}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      document.getElementById(`settings-section-${g.key}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    style={{
+                      flexShrink: 0,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      padding: '8px 14px',
+                      borderRadius: 9999,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: ts,
+                      background: 'transparent',
+                      textDecoration: 'none',
+                      whiteSpace: 'nowrap',
+                      transition: 'background 0.15s, color 0.15s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = dm ? 'rgba(51, 65, 85, 0.6)' : 'rgba(0,0,0,0.06)';
+                      e.currentTarget.style.color = tp;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = ts;
+                    }}
+                  >
+                    <FontAwesomeIcon icon={g.icon} style={{ fontSize: 11, opacity: 0.8 }} />
+                    {g.label}
+                  </a>
+                ))}
+              </div>
+            );
+          })()}
           {settingGroups.map(g => {
             const groupSettings = settings.filter(s => s.setting_group === g.key);
             if (!groupSettings.length) return null;
             return (
-              <Card key={g.key} dm={dm} style={{ padding: '20px 22px', marginBottom: 16 }}>
+              <Card key={g.key} id={`settings-section-${g.key}`} dm={dm} style={{ padding: '20px 22px', marginBottom: 16, scrollMarginTop: 24 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                   <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>
                     <FontAwesomeIcon icon={g.icon} style={{ marginRight: 8, opacity: 0.5, fontSize: 13 }} />
@@ -1190,12 +1490,41 @@ export default function AdminDashboard({ onShowLead }) {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px 20px' }}>
                     <div>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Color theme</label>
-                      <select value={getSettingVal('default_theme') || 'blue'} onChange={e => updateSetting('default_theme', e.target.value)}
-                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                        {Object.entries(themeMap).map(([key, t]) => (
-                          <option key={key} value={key}>{t.name}</option>
-                        ))}
-                      </select>
+                      <div style={{ border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`, borderRadius: 'var(--border-radius)', padding: 10, background: dm ? '#1e293b' : '#f8fafc' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 8, maxHeight: 220, overflowY: 'auto', paddingRight: 4 }}>
+                          {Object.entries(themeMap).map(([key, t]) => {
+                            const active = (getSettingVal('default_theme') || 'blue') === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => updateSetting('default_theme', key)}
+                                title={t.name}
+                                style={{
+                                  border: active ? `2px solid ${t.primary}` : `1px solid ${dm ? '#334155' : '#cbd5e1'}`,
+                                  background: dm ? '#0f172a' : '#ffffff',
+                                  borderRadius: 'var(--border-radius)',
+                                  padding: '6px 7px',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                              >
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4, marginBottom: 6 }}>
+                                  <span style={{ height: 16, borderRadius: 6, background: t.primary, border: '1px solid rgba(255,255,255,0.15)' }} />
+                                  <span style={{ height: 16, borderRadius: 6, background: t.accent, border: '1px solid rgba(255,255,255,0.15)' }} />
+                                  <span style={{ height: 16, borderRadius: 6, background: t.primaryLight, border: `1px solid ${dm ? '#475569' : '#d1d5db'}` }} />
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+                                  <span style={{ fontSize: 11, color: tp, fontWeight: active ? 700 : 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {t.name}
+                                  </span>
+                                  {active && <span style={{ fontSize: 10, fontWeight: 700, color: t.primary }}>Selected</span>}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                     <div>
                       <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 6 }}>Font</label>
@@ -1236,6 +1565,28 @@ export default function AdminDashboard({ onShowLead }) {
                           <input type="checkbox" checked={s.setting_value === 'true' || s.setting_value === '1'} onChange={e => updateSetting(s.setting_key, e.target.checked ? 'true' : 'false')} />
                           {s.setting_value === 'true' ? 'Enabled' : 'Disabled'}
                         </label>
+                      ) : s.setting_key === 'home_page_category_ids' ? (
+                        <div style={{ border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`, borderRadius: 'var(--border-radius)', padding: 12, background: dm ? '#1e293b' : '#f8fafc', maxHeight: 200, overflowY: 'auto' }}>
+                          <p style={{ fontSize: 11, color: ts, marginBottom: 10 }}>Only services in selected categories appear on the tenant public home page. Leave all unchecked to show all.</p>
+                          {categories.length === 0 ? (
+                            <p style={{ fontSize: 12, color: ts }}>No categories yet. Add categories under Packages → Categories first.</p>
+                          ) : (
+                            categories.map(cat => {
+                              let ids = [];
+                              try { ids = JSON.parse(s.setting_value || '[]'); } catch (_) {}
+                              const checked = Array.isArray(ids) && ids.includes(cat.id);
+                              return (
+                                <label key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: tp, marginBottom: 6 }}>
+                                  <input type="checkbox" checked={checked} onChange={() => {
+                                    const next = checked ? ids.filter(id => id !== cat.id) : [...(Array.isArray(ids) ? ids : []), cat.id];
+                                    updateSetting('home_page_category_ids', JSON.stringify(next));
+                                  }} />
+                                  {cat.name}
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
                       ) : s.setting_key.includes('description') || s.setting_key.includes('subtitle') ? (
                         <textarea rows={2} value={s.setting_value||''} onChange={e => updateSetting(s.setting_key, e.target.value)}
                           style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit' }} />
@@ -1272,7 +1623,17 @@ export default function AdminDashboard({ onShowLead }) {
                 {g.key === 'email' && (
                   <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
                     <h4 style={{ fontSize: 13, fontWeight: 600, color: tp, marginBottom: 8 }}>Test Email</h4>
-                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Send a test email to verify SMTP settings.</p>
+                    <p style={{ fontSize: 12, color: ts, marginBottom: 10 }}>Send a test email to verify SMTP settings. <strong>Save first</strong> before testing.</p>
+                    <p style={{ fontSize: 11, color: ts, marginBottom: 10, opacity: 0.8 }}>
+                      For MailHog (Docker): Host = localhost, Port = 1025, leave User/Password empty.{' '}
+                      <button type="button" onClick={async () => {
+                        try {
+                          const r = await api.post('/settings/apply-mailhog', {});
+                          if (r.success) { flash(r.message); setTestEmailResult(null); }
+                          else flash(r.error || 'Failed');
+                        } catch (e) { flash(e.message || 'Failed'); }
+                      }} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', fontWeight: 600 }}>Apply MailHog config</button>
+                    </p>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       <input type="email" placeholder="you@example.com" value={testEmailTo} onChange={e => { setTestEmailTo(e.target.value); setTestEmailResult(null); }}
                         style={{ width: 220, padding: '6px 10px', fontSize: 12, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp, outline: 'none', boxSizing: 'border-box' }} />
@@ -1281,9 +1642,11 @@ export default function AdminDashboard({ onShowLead }) {
                         setTestEmailSending(true); setTestEmailResult(null);
                         try {
                           const r = await api.post('/settings/test-email', { to: testEmailTo.trim() });
-                          if (r.error) { flash(r.error); setTestEmailResult({ ok: false, msg: r.error }); }
-                          else { setTestEmailResult({ ok: true, msg: r.mock ? 'Sent (mock — SMTP not configured)' : 'Test email sent!' }); flash('Test email sent'); }
-                        } catch (e) { setTestEmailResult({ ok: false, msg: 'Request failed' }); flash('Failed to send'); }
+                          const ok = r.success !== false && !r.mock;
+                          const msg = r.error || r.message || (ok ? 'Test email sent!' : 'Check settings');
+                          setTestEmailResult({ ok, msg });
+                          if (ok) flash('Test email sent'); else flash(msg);
+                        } catch (e) { setTestEmailResult({ ok: false, msg: e.message || 'Request failed' }); flash('Failed to send'); }
                         setTestEmailSending(false);
                       }} disabled={testEmailSending}>{(testEmailSending ? 'Sending...' : 'Send test email')}</Btn>
                     </div>
@@ -1313,121 +1676,82 @@ export default function AdminDashboard({ onShowLead }) {
           })}
         </>}
 
-        {/* ── Tenants (Superadmin only) ── */}
-        {tab === 'tenants' && user?.role === 'superadmin' && <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Tenants ({tenantsTotal})</h3>
-            <Btn onClick={() => setNewTenant({ name: '', slug: '', customDomain: '', plan: 'starter', adminEmail: '', adminPassword: '', adminFirstName: '', adminLastName: '' })}>
-              <FontAwesomeIcon icon={faPlus} /> New Tenant
-            </Btn>
+
+      {showDomainHelp && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(2, 6, 23, 0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 16,
+          zIndex: 250,
+        }}>
+          <div style={{
+            width: '100%',
+            maxWidth: 760,
+            maxHeight: '85vh',
+            overflowY: 'auto',
+            background: dm ? '#0f172a' : '#ffffff',
+            border: `1px solid ${dm ? '#334155' : '#e2e8f0'}`,
+            borderRadius: 'var(--border-radius)',
+            boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
+            padding: 18,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: tp }}>Domain Configuration Instructions</h3>
+              <Btn small variant="ghost" onClick={() => setShowDomainHelp(false)}><FontAwesomeIcon icon={faXmark} />Close</Btn>
+            </div>
+            <p style={{ marginTop: 0, marginBottom: 14, fontSize: 13, color: ts }}>
+              Use this checklist when assigning a custom domain to a tenant.
+            </p>
+
+            <Card dm={dm} style={{ padding: 14, marginBottom: 12 }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 700, color: tp }}>1) In Wrkr (Super Admin)</h4>
+              <ul style={{ margin: 0, paddingLeft: 18, color: ts, fontSize: 13, lineHeight: 1.5 }}>
+                <li>Open Admin - Users - Tenants.</li>
+                <li>Create or edit a tenant and set <b>Custom Domain</b> (example: <code>acmehome.com</code>).</li>
+                <li>Save tenant changes.</li>
+              </ul>
+            </Card>
+
+            <Card dm={dm} style={{ padding: 14, marginBottom: 12 }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 700, color: tp }}>2) DNS Records (minimum)</h4>
+              <ul style={{ margin: 0, paddingLeft: 18, color: ts, fontSize: 13, lineHeight: 1.5 }}>
+                <li><b>A</b> record: <code>@</code> &rarr; <code>YOUR_SERVER_PUBLIC_IP</code></li>
+                <li><b>CNAME</b> record: <code>www</code> &rarr; <code>@</code> (or root domain)</li>
+              </ul>
+              <p style={{ margin: '8px 0 0 0', color: ts, fontSize: 12 }}>
+                Optional: wildcard subdomains with <code>*</code> &rarr; <code>YOUR_SERVER_PUBLIC_IP</code>
+              </p>
+            </Card>
+
+            <Card dm={dm} style={{ padding: 14, marginBottom: 12 }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 700, color: tp }}>3) Server / SSL</h4>
+              <ul style={{ margin: 0, paddingLeft: 18, color: ts, fontSize: 13, lineHeight: 1.5 }}>
+                <li>Add the tenant domain to your reverse proxy (Nginx/Apache).</li>
+                <li>Route traffic to this app and preserve the original <code>Host</code> header.</li>
+                <li>Issue SSL certificate for the tenant domain (and <code>www</code> if used).</li>
+                <li>Force HTTPS redirects.</li>
+              </ul>
+            </Card>
+
+            <Card dm={dm} style={{ padding: 14, marginBottom: 12 }}>
+              <h4 style={{ margin: '0 0 8px 0', fontSize: 13, fontWeight: 700, color: tp }}>4) Verify</h4>
+              <ul style={{ margin: 0, paddingLeft: 18, color: ts, fontSize: 13, lineHeight: 1.5 }}>
+                <li>Open <code>https://tenant-domain.com</code>.</li>
+                <li>Confirm tenant branding/settings and data isolation.</li>
+                <li>If wrong tenant loads, check DNS, custom domain value, and proxy host forwarding.</li>
+              </ul>
+            </Card>
+
+            <p style={{ margin: 0, color: ts, fontSize: 12 }}>
+              Note: on <code>localhost</code>, tenant middleware always resolves to default tenant.
+            </p>
           </div>
-
-          {newTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Create New Tenant</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <Input label="Tenant Name" value={newTenant.name} onChange={v => setNewTenant({...newTenant, name: v})} dm={dm} placeholder="Acme Home Services" />
-              <Input label="Slug (unique ID)" value={newTenant.slug} onChange={v => setNewTenant({...newTenant, slug: v.toLowerCase().replace(/\s/g,'-')})} dm={dm} placeholder="acme-home" />
-              <Input label="Custom Domain (optional)" value={newTenant.customDomain} onChange={v => setNewTenant({...newTenant, customDomain: v})} dm={dm} placeholder="acmehome.com" />
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
-                <select value={newTenant.plan} onChange={e => setNewTenant({...newTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                  <option value="starter">Starter</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              </div>
-              <Input label="Admin Email" value={newTenant.adminEmail} onChange={v => setNewTenant({...newTenant, adminEmail: v})} dm={dm} type="email" placeholder="admin@acmehome.com" />
-              <Input label="Admin Password" value={newTenant.adminPassword} onChange={v => setNewTenant({...newTenant, adminPassword: v})} dm={dm} type="password" />
-              <Input label="Admin First Name" value={newTenant.adminFirstName} onChange={v => setNewTenant({...newTenant, adminFirstName: v})} dm={dm} />
-              <Input label="Admin Last Name" value={newTenant.adminLastName} onChange={v => setNewTenant({...newTenant, adminLastName: v})} dm={dm} />
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <Btn onClick={async () => {
-                if (!newTenant.name || !newTenant.slug) return flash('Name and slug are required');
-                setSaving(true);
-                try {
-                  const r = await api.post('/superadmin/tenants', { name: newTenant.name, slug: newTenant.slug, customDomain: newTenant.customDomain || undefined, plan: newTenant.plan, adminEmail: newTenant.adminEmail || undefined, adminPassword: newTenant.adminPassword || undefined, adminFirstName: newTenant.adminFirstName, adminLastName: newTenant.adminLastName });
-                  if (r.error) { flash(r.error); setSaving(false); return; }
-                  flash(`Tenant "${newTenant.name}" created (ID: ${r.id})`);
-                  setNewTenant(null);
-                  const d = await api.get(`/superadmin/tenants?page=1&limit=${tenantsLimit}`);
-                  setTenants(d.tenants ?? []);
-                  setTenantsTotal(d.total ?? 0);
-                } catch (e) { flash('Failed to create tenant'); }
-                setSaving(false);
-              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Creating...' : 'Create Tenant'}</Btn>
-              <Btn variant="ghost" onClick={() => setNewTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
-            </div>
-          </Card>}
-
-          {editTenant && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>Edit Tenant: {editTenant.name}</h4>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <Input label="Tenant Name" value={editTenant.name||''} onChange={v => setEditTenant({...editTenant, name: v})} dm={dm} />
-              <Input label="Custom Domain" value={editTenant.custom_domain||''} onChange={v => setEditTenant({...editTenant, custom_domain: v})} dm={dm} placeholder="client.com" />
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Status</label>
-                <select value={editTenant.status||'active'} onChange={e => setEditTenant({...editTenant, status: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                  <option value="active">Active</option>
-                  <option value="suspended">Suspended</option>
-                  <option value="pending">Pending</option>
-                </select>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: ts, marginBottom: 4 }}>Plan</label>
-                <select value={editTenant.plan||'starter'} onChange={e => setEditTenant({...editTenant, plan: e.target.value})} style={{ width: '100%', padding: '8px 12px', fontSize: 13, border: `1px solid ${dm?'#334155':'#e2e8f0'}`, borderRadius: 'var(--border-radius)', background: dm?'#1e293b':'#f8fafc', color: tp }}>
-                  <option value="starter">Starter</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <Btn onClick={async () => {
-                setSaving(true);
-                try {
-                  await api.patch(`/superadmin/tenants/${editTenant.id}`, { name: editTenant.name, customDomain: editTenant.custom_domain || null, status: editTenant.status, plan: editTenant.plan });
-                  setTenants(ts => ts.map(t => t.id === editTenant.id ? { ...t, ...editTenant, custom_domain: editTenant.custom_domain || null } : t));
-                  setEditTenant(null);
-                  flash('Tenant updated');
-                } catch (e) { flash('Failed to update'); }
-                setSaving(false);
-              }} disabled={saving}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}</Btn>
-              <Btn variant="ghost" onClick={() => setEditTenant(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
-            </div>
-          </Card>}
-
-          <Card dm={dm}>
-            <Table headers={['ID','Name','Slug','Domain','Plan','Status','Users','Leads','Created','Actions']} dm={dm}>
-              {tenants.map(t => (
-                <tr key={t.id} style={{ borderBottom: `1px solid ${border}` }}>
-                  <Td dm={dm}>{t.id}</Td>
-                  <Td dm={dm} fw={600}>{t.name}</Td>
-                  <Td dm={dm}><code style={{ fontSize: 11, background: dm?'#1e293b':'#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>{t.slug}</code></Td>
-                  <Td dm={dm}>{t.custom_domain || <span style={{ color: ts, fontSize: 11 }}>none</span>}</Td>
-                  <Td dm={dm}><Badge color="#7c3aed" bg="#ede9fe">{t.plan}</Badge></Td>
-                  <Td dm={dm}><Badge color={t.status === 'active' ? '#16a34a' : t.status === 'suspended' ? '#dc2626' : '#d97706'} bg={t.status === 'active' ? '#dcfce7' : t.status === 'suspended' ? '#fee2e2' : '#fef9c3'}>{t.status}</Badge></Td>
-                  <Td dm={dm}>{t.user_count ?? '—'}</Td>
-                  <Td dm={dm}>{t.lead_count ?? '—'}</Td>
-                  <Td dm={dm}>{t.created_at ? new Date(t.created_at).toLocaleDateString() : '—'}</Td>
-                  <Td dm={dm}>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <Btn small onClick={() => setEditTenant({...t})}><FontAwesomeIcon icon={faPen} /></Btn>
-                      {t.id !== 1 && <Btn small variant="danger" onClick={async () => {
-                        if (!confirm(`Suspend tenant "${t.name}"?`)) return;
-                        await api.del(`/superadmin/tenants/${t.id}`);
-                        setTenants(ts => ts.map(x => x.id === t.id ? {...x, status: 'suspended'} : x));
-                        flash('Tenant suspended');
-                      }}><FontAwesomeIcon icon={faTrash} /></Btn>}
-                    </div>
-                  </Td>
-                </tr>
-              ))}
-              {!tenants.length && <tr><td colSpan={10} style={{ padding: 20, textAlign: 'center', color: ts, fontSize: 13 }}>No tenants found</td></tr>}
-            </Table>
-            <PaginationBar page={tenantsPage} total={tenantsTotal} limit={tenantsLimit} onPageChange={setTenantsPage} dm={dm} />
-          </Card>
-        </>}
+        </div>
+      )}
 
       </div>
     </div>

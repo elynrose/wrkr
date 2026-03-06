@@ -57,7 +57,8 @@ router.put('/:slug', authenticate, requireRole('admin'), async (req, res) => {
 // POST /api/templates/:slug/preview — admin: preview with sample data
 router.post('/:slug/preview', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT * FROM notification_templates WHERE slug = ?', [req.params.slug]);
+    const tid = req.tenant?.id || 1;
+    const [rows] = await db.query('SELECT * FROM notification_templates WHERE slug = ? AND tenant_id = ?', [req.params.slug, tid]);
     if (!rows.length) return res.status(404).json({ error: 'Template not found' });
 
     const tmpl = rows[0];
@@ -99,9 +100,10 @@ router.post('/:slug/reset', authenticate, requireRole('admin'), async (req, res)
     const def = defaults.getDefaults().find(t => t.slug === req.params.slug);
     if (!def) return res.status(404).json({ error: 'Default template not found for this slug' });
 
+    const tid = req.tenant?.id || 1;
     await db.query(
-      'UPDATE notification_templates SET subject = ?, body = ?, name = ? WHERE slug = ?',
-      [def.subject, def.body, def.name, req.params.slug]
+      'UPDATE notification_templates SET subject = ?, body = ?, name = ? WHERE slug = ? AND tenant_id = ?',
+      [def.subject, def.body, def.name, req.params.slug, tid]
     );
     clearTemplateCache();
     res.json({ message: 'Template reset to default' });

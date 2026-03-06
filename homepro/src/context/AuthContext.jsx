@@ -44,6 +44,7 @@ export function AuthProvider({ children }) {
       body: JSON.stringify({ email, password }),
     });
     localStorage.setItem('hp_token', data.token);
+    if (data.refreshToken) localStorage.setItem('hp_refresh', data.refreshToken);
     setUser(data.user);
     return data.user;
   };
@@ -60,6 +61,7 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem('hp_token');
+    localStorage.removeItem('hp_refresh');
     setUser(null);
   };
 
@@ -79,4 +81,5 @@ export function AuthProvider({ children }) {
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+const AUTH_FALLBACK = { user: null, loading: true, login: async () => {}, register: async () => {}, logout: () => {}, updateProfile: async () => {}, fetchMe: () => {} };
+export const useAuth = () => useContext(AuthContext) ?? AUTH_FALLBACK;

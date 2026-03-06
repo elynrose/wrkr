@@ -24,6 +24,27 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /api/services/admin-list — authenticated, tenant-scoped list for admin dashboard
+router.get('/admin-list', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
+  try {
+    const { category_id, all } = req.query;
+    let query = 'SELECT s.*, c.name as category_name, c.slug as category_slug FROM services s LEFT JOIN categories c ON s.category_id = c.id WHERE s.tenant_id = ?';
+    const params = [tid];
+    if (all !== 'true') query += ' AND s.is_active = TRUE';
+    if (category_id) {
+      query += ' AND s.category_id = ?';
+      params.push(category_id);
+    }
+    query += ' ORDER BY s.review_count DESC';
+    const [rows] = await db.query(query, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('GET /services/admin-list error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
 // GET /api/services/how-it-works — admin: list all steps (both audiences)
 router.get('/how-it-works', authenticate, requireRole('admin'), async (req, res) => {
   const tid = req.tenant?.id || 1;

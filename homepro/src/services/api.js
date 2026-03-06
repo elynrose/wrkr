@@ -1,8 +1,11 @@
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
-// Public fetch for settings (no auth required)
-async function requestPublic(path) {
-  const res = await fetch(`${BASE}${path}`);
+// Public fetch (no auth required)
+async function requestPublic(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...options.headers },
+    ...options,
+  });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'API error');
   return data;
@@ -93,6 +96,26 @@ export const getPaymentHistory = (page = 1, limit = 20) =>
   request(`/payments?page=${page}&limit=${limit}`);
 
 export const getInvoices = () => request('/payments/invoices');
+
+// ── Password reset ─────────────────────────
+export const requestPasswordReset = (email) =>
+  requestPublic('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email }) });
+
+export const resetPassword = (token, newPassword) =>
+  requestPublic('/auth/reset-password', { method: 'POST', body: JSON.stringify({ token, newPassword }) });
+
+export const verifyEmail = (token) =>
+  requestPublic(`/auth/verify/${token}`, { method: 'POST' });
+
+export const resendVerification = () =>
+  request('/auth/resend-verification', { method: 'POST' });
+
+export const refreshToken = (refreshToken) =>
+  requestPublic('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) });
+
+export const exportMyData = () => request('/users/me/export');
+export const deleteMyAccount = (password) =>
+  request('/users/me/delete', { method: 'POST', body: JSON.stringify({ password }) });
 
 // ── Profile ─────────────────────────────────
 export const changePassword = (currentPassword, newPassword) =>

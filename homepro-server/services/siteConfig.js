@@ -61,6 +61,18 @@ function castValue(val, type) {
   return val;
 }
 
+async function getRequireEmailVerification(tenantId = 1) {
+  try {
+    const [rows] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'require_email_verification' AND tenant_id = ? LIMIT 1",
+      [tenantId || 1]
+    );
+    return rows.length && (rows[0].setting_value === 'true' || rows[0].setting_value === '1');
+  } catch {
+    return false;
+  }
+}
+
 function clearSiteConfigCache(tenantId) {
   if (tenantId) {
     cache.delete(tenantId);
@@ -69,4 +81,4 @@ function clearSiteConfigCache(tenantId) {
   }
 }
 
-module.exports = { getSiteConfig, getPublicSettings, clearSiteConfigCache };
+module.exports = { getSiteConfig, getPublicSettings, getRequireEmailVerification, clearSiteConfigCache };

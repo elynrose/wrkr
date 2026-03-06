@@ -138,7 +138,7 @@ async function matchAndNotify(leadId, tenantId = 1) {
         }[lead.urgency] || '';
 
         let smsBody;
-        const smsTmpl = await getSmsTemplate('sms_lead_match');
+        const smsTmpl = await getSmsTemplate('sms_lead_match', tid);
         if (smsTmpl) {
           smsBody = renderTemplate(smsTmpl.body, {
             serviceName: lead.service_name || 'Service',
@@ -159,7 +159,7 @@ async function matchAndNotify(leadId, tenantId = 1) {
             `\nReply STOP to opt out.`;
         }
 
-        const smsResult = await sendSMS(phone, smsBody);
+        const smsResult = await sendSMS(phone, smsBody, tid);
 
         await db.query(
           `UPDATE lead_matches SET sms_sent = TRUE, sms_sent_at = NOW(), sms_sid = ?, status = 'notified'
@@ -174,7 +174,7 @@ async function matchAndNotify(leadId, tenantId = 1) {
         sendLeadMatchEmail(proEmail, lead, {
           token, score: pro.matchScore, claimUrl: getClaimUrl(token),
           expiryHours: MATCH_EXPIRY_HOURS, maxClaims: MAX_CLAIMS,
-        }).catch(err => console.error(`[EMAIL] Match email to pro #${pro.id} failed:`, err.message));
+        }, tid).catch(err => console.error(`[EMAIL] Match email to pro #${pro.id} failed:`, err.message));
       }
 
       results.push({
@@ -193,8 +193,8 @@ async function matchAndNotify(leadId, tenantId = 1) {
   }
 
   // Log activity
-  await db.query('INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-    [leadId, 'pros_matched', `Matched ${results.length} pros (${results.filter(r => r.smsSent).length} notified via SMS)`]);
+  await db.query('INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+    [tid, leadId, 'pros_matched', `Matched ${results.length} pros (${results.filter(r => r.smsSent).length} notified via SMS)`]);
 
   // Update lead status to matching
   await db.query("UPDATE leads SET status = 'matching' WHERE id = ? AND status = 'new'", [leadId]);
@@ -308,7 +308,8 @@ async function confirmClaim(token) {
     await conn.beginTransaction();
 
     const [matches] = await conn.query(
-      `SELECT lm.*, l.claim_count, l.max_claims, l.lead_value, l.status AS lead_status,
+      `SELECT lm.*, lm.tenant_id AS match_tenant_id,
+              l.claim_count, l.max_claims, l.lead_value, l.status AS lead_status,
               p.lead_credits, p.subscription_plan, p.business_name, p.id AS pid
        FROM lead_matches lm
        JOIN leads l ON lm.lead_id = l.id
@@ -324,6 +325,7 @@ async function confirmClaim(token) {
     }
 
     const m = matches[0];
+    const mTenantId = m.match_tenant_id || m.tenant_id || 1;
 
     if (m.status === 'accepted') {
       await conn.rollback();
@@ -378,11 +380,11 @@ async function confirmClaim(token) {
     );
 
     // Activity log
-    await conn.query('INSERT INTO lead_activity (lead_id, user_id, action, details) VALUES (?,?,?,?)',
-      [m.lead_id, m.user_id, 'lead_claimed', `Claimed by ${m.business_name} (exclusive)`]);
+    await conn.query('INSERT INTO lead_activity (tenant_id, lead_id, user_id, action, details) VALUES (?,?,?,?,?)',
+      [mTenantId, m.lead_id, m.user_id, 'lead_claimed', `Claimed by ${m.business_name} (exclusive)`]);
 
-    await conn.query('INSERT INTO lead_activity (lead_id, action, details) VALUES (?,?,?)',
-      [m.lead_id, 'other_matches_expired', 'All other matches expired — single-claim lead']);
+    await conn.query('INSERT INTO lead_activity (tenant_id, lead_id, action, details) VALUES (?,?,?,?)',
+      [mTenantId, m.lead_id, 'other_matches_expired', 'All other matches expired — single-claim lead']);
 
     await conn.commit();
     return { success: true, message: 'Lead claimed successfully! You are the exclusive provider for this lead.' };

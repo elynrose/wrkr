@@ -49,6 +49,9 @@ const { getSiteConfig } = require('./services/siteConfig');
 
 // ── Routes ──────────────────────────────────────────────────
 
+// Auth router first (so /api/auth/* matches before other /api routes)
+app.use('/api/auth', require('./routes/auth'));
+
 // Admin how-it-works (explicit path so it always matches)
 app.get('/api/admin/how-it-works', authenticate, requireRole('admin'), async (req, res) => {
   try {
@@ -69,17 +72,47 @@ app.post('/api/settings/test-sms', authenticate, requireRole('admin'), async (re
   const trimmed = to.trim();
   if (!trimmed) return res.status(400).json({ error: 'Phone number required' });
   try {
-    const configured = await isConfigured();
+    const tid = req.tenant?.id || 1;
+    const configured = await isConfigured(tid);
     if (!configured) {
       return res.status(400).json({ error: 'Twilio is not configured. Set Account SID, Auth Token, and Phone Number in Twilio settings.' });
     }
-    const site = await getSiteConfig(req.tenant?.id);
+    const site = await getSiteConfig(tid);
     const body = `Test SMS from ${site.site_name}. Twilio is connected and working.`;
-    const result = await sendSMS(trimmed, body);
+    const result = await sendSMS(trimmed, body, tid);
     return res.json({ success: true, message: 'Test SMS sent', sid: result.sid, mock: result.mock });
   } catch (err) {
     console.error('Test SMS error:', err);
     return res.status(500).json({ error: err.message || 'Failed to send test SMS' });
+  }
+});
+
+// Apply MailHog config for current tenant (so admin test works without manual save)
+app.post('/api/settings/apply-mailhog', authenticate, requireRole('admin'), async (req, res) => {
+  const tenantId = req.tenant?.id || 1;
+  try {
+    const settings = [
+      ['email_enabled', 'true', 'boolean'],
+      ['smtp_host', 'localhost', 'string'],
+      ['smtp_port', '1025', 'number'],
+      ['smtp_secure', 'false', 'boolean'],
+      ['smtp_user', '', 'string'],
+      ['smtp_password', '', 'secret'],
+    ];
+    for (const [key, value, type] of settings) {
+      await db.query(
+        `INSERT INTO settings (tenant_id, setting_key, setting_value, setting_type, setting_group, label, is_public)
+         VALUES (?, ?, ?, ?, 'email', ?, FALSE)
+         ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+        [tenantId, key, value, type, key.replace(/_/g, ' ')]
+      );
+    }
+    const { clearCache } = require('./services/email');
+    clearCache(tenantId);
+    return res.json({ success: true, message: 'MailHog config applied. Try test email now.' });
+  } catch (err) {
+    console.error('Apply MailHog error:', err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -90,21 +123,30 @@ app.post('/api/settings/test-email', authenticate, requireRole('admin'), async (
   }
   const trimmed = to.trim();
   if (!trimmed) return res.status(400).json({ error: 'Email address required' });
+  const tenantId = req.tenant?.id || 1;
   try {
-    const site = await getSiteConfig(req.tenant?.id);
+    const { clearCache, getEmailConfigStatus } = require('./services/email');
+    clearCache(tenantId);
+    const status = await getEmailConfigStatus(tenantId);
+    if (!status.ready) {
+      return res.json({ success: false, message: status.reason || 'SMTP not configured', mock: true });
+    }
+    const site = await getSiteConfig(tenantId);
     const subject = `Test email from ${site.site_name}`;
     const html = `<p>This is a test email. Your email (SMTP) settings are configured correctly.</p><p>— ${site.site_name}</p>`;
-    const result = await sendEmail({ to: trimmed, subject, html, text: 'This is a test email. Your email (SMTP) settings are configured correctly.' });
-    return res.json({ success: true, message: 'Test email sent', mock: result.mock });
+    const result = await sendEmail({ to: trimmed, subject, html, text: 'This is a test email. Your email (SMTP) settings are configured correctly.', tenantId });
+    const message = result.mock ? (status.reason || 'SMTP not configured') : 'Test email sent';
+    return res.json({ success: !result.mock, message, mock: result.mock });
   } catch (err) {
     console.error('Test email error:', err);
-    return res.status(500).json({ error: err.message || 'Failed to send test email' });
+    return res.status(500).json({ success: false, error: err.message || 'Failed to send test email' });
   }
 });
 
 app.post('/api/settings/test-stripe', authenticate, requireRole('admin'), async (req, res) => {
   try {
-    const stripe = await getStripe();
+    const stripeTid = req.tenant?.id || 1;
+    const stripe = await getStripe(stripeTid);
     if (!stripe) {
       return res.status(400).json({ error: 'Stripe is not configured. Set Secret Key in Stripe settings (or STRIPE_SECRET_KEY in .env).' });
     }
@@ -116,7 +158,6 @@ app.post('/api/settings/test-stripe', authenticate, requireRole('admin'), async 
   }
 });
 
-app.use('/api/auth',            require('./routes/auth'));
 app.use('/api/users',           require('./routes/users'));
 app.use('/api/categories',      require('./routes/categories'));
 app.use('/api/services',        require('./routes/services'));
@@ -170,6 +211,42 @@ app.post('/api/admin/run-followups', authenticate, requireRole('admin'), async (
     console.error('Follow-up run error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Sitemap & robots.txt (SEO) ───────────────────────────
+const BASE_URL = process.env.FRONTEND_URL || process.env.SITE_URL || 'http://localhost:5173';
+app.get('/sitemap.xml', async (req, res) => {
+  try {
+    const [pages] = await db.query("SELECT slug FROM pages WHERE tenant_id = 1 AND status = 'published'");
+    const [tenants] = await db.query("SELECT slug FROM tenants WHERE status = 'active' AND slug != 'default'");
+    const urls = [
+      { loc: BASE_URL.replace(/\/$/, '') + '/', changefreq: 'daily', priority: '1.0' },
+      { loc: BASE_URL.replace(/\/$/, '') + '/#for-pros', changefreq: 'weekly', priority: '0.9' },
+      { loc: BASE_URL.replace(/\/$/, '') + '/#login', changefreq: 'monthly', priority: '0.5' },
+      ...pages.map(p => ({ loc: `${BASE_URL.replace(/\/$/, '')}/#page/${p.slug}`, changefreq: 'weekly', priority: '0.7' })),
+      ...tenants.map(t => ({ loc: `${BASE_URL.replace(/\/$/, '')}/#t/${t.slug}`, changefreq: 'weekly', priority: '0.8' })),
+    ];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map(u => `  <url><loc>${escapeXml(u.loc)}</loc><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`).join('\n')}
+</urlset>`;
+    res.type('application/xml').send(xml);
+  } catch (err) {
+    console.error('Sitemap error:', err);
+    res.status(500).send('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>');
+  }
+});
+function escapeXml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+app.get('/robots.txt', (req, res) => {
+  const sitemapUrl = `${BASE_URL.replace(/\/$/, '')}/sitemap.xml`;
+  res.type('text/plain').send(`User-agent: *
+Allow: /
+
+Sitemap: ${sitemapUrl}
+`);
 });
 
 // Health check

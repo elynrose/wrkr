@@ -6,7 +6,7 @@ const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 
 function generateToken(user) {
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, tenantId: user.tenant_id || user.tenantId || 1 },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES }
   );
@@ -20,13 +20,20 @@ async function authenticate(req, res, next) {
   try {
     const decoded = jwt.verify(header.split(' ')[1], JWT_SECRET);
     const [rows] = await db.query(
-      'SELECT id, email, role, first_name, last_name, phone, is_active FROM users WHERE id = ?',
+      'SELECT id, tenant_id, email, role, first_name, last_name, phone, is_active FROM users WHERE id = ?',
       [decoded.id]
     );
     if (!rows.length || !rows[0].is_active) {
       return res.status(401).json({ error: 'User not found or inactive' });
     }
     req.user = rows[0];
+
+    // Dev convenience: on localhost, bind request tenant to authenticated user's tenant.
+    // This allows tenant admins to test/login locally without a custom domain.
+    const host = (req.hostname || '').toLowerCase();
+    if (!host || host === 'localhost' || host === '127.0.0.1') {
+      req.tenant = { ...(req.tenant || {}), id: rows[0].tenant_id };
+    }
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });

@@ -13,6 +13,7 @@ import {
   changePassword, getMyLeads, updateProProfile,
   getCurrentSubscription, createCheckout, cancelSubscription,
   resumeSubscription, openBillingPortal, getPlans,
+  resendVerification, exportMyData, deleteMyAccount,
 } from '../services/api';
 
 const BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -36,6 +37,7 @@ export default function ProfilePage() {
   const [sub, setSub] = useState(null);
   const [plans, setPlans] = useState([]);
   const [subLoading, setSubLoading] = useState(false);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const [account, setAccount] = useState({
     firstName: '',
@@ -186,8 +188,70 @@ export default function ProfilePage() {
     );
   }
 
+  const handleExportData = async () => {
+    setExportLoading(true);
+    try {
+      const data = await exportMyData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `homepro-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      setMessage('Data exported successfully.');
+    } catch (e) {
+      setMessage(e.message || 'Export failed.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm !== 'DELETE') return setMessage('Type DELETE to confirm.');
+    setDeleteLoading(true);
+    try {
+      await deleteMyAccount(pw.current);
+      localStorage.removeItem('hp_token');
+      localStorage.removeItem('hp_refresh');
+      window.location.href = '/';
+    } catch (e) {
+      setMessage(e.message || 'Deletion failed.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendLoading(true);
+    try {
+      await resendVerification();
+      setMessage('Verification email sent. Check your inbox.');
+    } catch (e) {
+      setMessage(e.message || 'Failed to send verification email.');
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: darkMode ? '#0b1220' : '#f3f6fb', padding: '32px 20px 48px' }}>
+      {user && !user.emailVerified && (
+        <div style={{
+          maxWidth: 1050, margin: '0 auto 24px', padding: '16px 20px',
+          background: darkMode ? '#7c2d12' : '#fef3c7', border: '1px solid #f59e0b',
+          borderRadius: 'var(--border-radius)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+        }}>
+          <span style={{ fontSize: 14, color: darkMode ? '#fed7aa' : '#92400e', fontWeight: 500 }}>
+            Please verify your email to access all features.
+          </span>
+          <button onClick={handleResendVerification} disabled={resendLoading} style={{
+            padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 'var(--border-radius)',
+            background: '#f59e0b', color: '#fff', border: 'none', cursor: resendLoading ? 'wait' : 'pointer',
+          }}>
+            {resendLoading ? <><FontAwesomeIcon icon={faSpinner} spin /> Sending...</> : 'Resend verification email'}
+          </button>
+        </div>
+      )}
       <div style={{ maxWidth: 1050, margin: '0 auto', display: 'grid', gap: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
           <div>
@@ -232,6 +296,26 @@ export default function ProfilePage() {
           <button onClick={savePassword} disabled={saving} style={{ ...btnGhost, marginTop: 4 }}>
             <FontAwesomeIcon icon={saving ? faSpinner : faKey} spin={saving} /> Update Password
           </button>
+        </div>
+
+        <div style={panelStyle}>
+          <h3 style={{ margin: '0 0 16px', color: darkMode ? '#f3f4f6' : '#111827', fontSize: 18 }}>Data & Privacy</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
+            <button onClick={handleExportData} disabled={exportLoading} style={{ ...btnGhost, fontSize: 13 }}>
+              <FontAwesomeIcon icon={exportLoading ? faSpinner : faArrowUpRightFromSquare} spin={exportLoading} /> Export my data
+            </button>
+          </div>
+          <div style={{ paddingTop: 16, borderTop: `1px solid ${darkMode ? '#374151' : '#e5e7eb'}` }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, color: '#dc2626', marginBottom: 8 }}>Delete account</h4>
+            <p style={{ fontSize: 13, color: darkMode ? '#9ca3af' : '#6b7280', marginBottom: 12 }}>Permanently deactivate your account. Enter your password and type DELETE to confirm.</p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <input type="password" placeholder="Your password" value={pw.current} onChange={e => setPw(s => ({ ...s, current: e.target.value }))} style={{ ...inputStyle, width: 160 }} />
+              <input type="text" placeholder="Type DELETE" value={deleteConfirm} onChange={e => setDeleteConfirm(e.target.value)} style={{ ...inputStyle, width: 140 }} />
+              <button onClick={handleDeleteAccount} disabled={deleteLoading || deleteConfirm !== 'DELETE' || !pw.current} style={{ padding: '8px 16px', fontSize: 13, background: '#dc2626', color: '#fff', border: 'none', borderRadius: 'var(--border-radius)', cursor: deleteLoading ? 'wait' : 'pointer', fontWeight: 600 }}>
+                {deleteLoading ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Delete account'}
+              </button>
+            </div>
+          </div>
         </div>
 
         {user.role === 'consumer' && (
