@@ -7,6 +7,6 @@
   },
   "scripts": {
     "start": "node homepro-server/server.js",
-    "heroku-postbuild": "npm ci --prefix homepro-server && npm ci --prefix homepro && cd homepro && VITE_API_URL=/api npm run build"
+    "heroku-postbuild": "npm ci --prefix homepro-server && npm ci --prefix homepro --include=dev && cd homepro && VITE_API_URL=/api npm run build"
   }
 }
