@@ -1,0 +1,12 @@
+# Railway deployment config for HomePro API
+# Deploy this folder (homepro-server) as the service root in Railway.
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "sh start.sh"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30

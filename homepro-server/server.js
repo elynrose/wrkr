@@ -6,14 +6,24 @@ const app  = express();
 const PORT = process.env.PORT || 3001;
 
 // ── Middleware ───────────────────────────────────────────────
+const frontendUrl = (process.env.FRONTEND_URL || '').replace(/\/$/, '');
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:3000',
+].filter(Boolean);
+if (frontendUrl && !allowedOrigins.includes(frontendUrl)) allowedOrigins.push(frontendUrl);
+// Railway and similar: allow *.railway.app
 app.use(cors({
   origin: function (origin, callback) {
-    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.some(o => origin === o)) return callback(null, true);
+    if (/\.railway\.app$/.test(new URL(origin).hostname)) return callback(null, true);
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return callback(null, true);
+    callback(null, false);
+  },
+  credentials: true,
 }));
 
 // Stripe webhook needs raw body — must be before json parser
@@ -165,7 +175,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 404
+// Production: serve frontend static build (e.g. from Railway single-service deploy)
+const path = require('path');
+const publicDir = path.join(__dirname, 'public');
+const fs = require('fs');
+if (process.env.NODE_ENV === 'production' && fs.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+}
+
+// 404 for API
 app.use((req, res) => {
   res.status(404).json({ error: `Route ${req.method} ${req.path} not found` });
 });
