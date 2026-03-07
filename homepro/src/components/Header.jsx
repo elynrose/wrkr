@@ -43,12 +43,15 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
   const roleColors = { admin: '#ef4444', superadmin: '#7c3aed', pro: 'var(--color-primary)', consumer: '#22c55e' };
 
   return (
-    <header style={{
-      position: 'sticky', top: 0, zIndex: 50,
-      backgroundColor: darkMode ? '#111827' : '#ffffff',
-      borderBottom: darkMode ? '1px solid #1f2937' : '1px solid #e5e7eb',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-    }}>
+    <header
+      className="app-header"
+      style={{
+        position: 'sticky', top: 0, zIndex: 50,
+        backgroundColor: darkMode ? '#111827' : '#ffffff',
+        borderBottom: darkMode ? '1px solid #1f2937' : '1px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+      }}
+    >
       <div className="max-w-5xl lg:max-w-7xl mx-auto px-4 sm:px-6">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
 
@@ -66,8 +69,8 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             </span>
           </button>
 
-          {/* Desktop Nav — hidden on mobile/tablet; hamburger used below lg (1024px) */}
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 24 }} className="hidden lg:flex">
+          {/* Desktop Nav — hidden on mobile (no inline display so CSS can override) */}
+          <nav className="desktop-nav hidden lg:flex items-center gap-6" style={{ alignItems: 'center' }}>
             {navLinks.map(l => (
               <button key={l.key} onClick={() => onShowView(l.key)} style={{
                 display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 500,
@@ -80,8 +83,8 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             ))}
           </nav>
 
-          {/* Desktop Right — hidden on mobile/tablet */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }} className="hidden lg:flex">
+          {/* Desktop Right — hidden on mobile (no inline display so CSS can override) */}
+          <div className="desktop-nav hidden lg:flex items-center gap-2" style={{ alignItems: 'center' }}>
             {user ? (
               /* Logged-in dropdown */
               <div ref={dropRef} style={{ position: 'relative' }}>
@@ -168,19 +171,19 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             )}
           </div>
 
-          {/* Mobile/tablet hamburger — shown below lg (1024px) */}
+          {/* Mobile hamburger — always visible on small viewports (iPhone, Pixel, Samsung) */}
           <button onClick={() => setMenuOpen(!menuOpen)}
-            style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#f3f4f6' : '#1f2937' }}
-            className="lg:hidden"
+            style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#f3f4f6' : '#1e293b', flexShrink: 0, minWidth: 44, minHeight: 44 }}
+            className="hamburger-btn lg:hidden"
             aria-label={menuOpen ? 'Close menu' : 'Open menu'}>
             <FontAwesomeIcon icon={menuOpen ? faXmark : faBars} style={{ width: 20, height: 20 }} />
           </button>
         </div>
       </div>
 
-      {/* Mobile/tablet menu — shown when hamburger open, below lg */}
+      {/* Mobile/tablet menu — shown when hamburger open (iPhone, Pixel, Samsung, etc.) */}
       {menuOpen && (
-        <div style={{ padding: 16, borderTop: darkMode ? '1px solid #1f2937' : '1px solid #f3f4f6', backgroundColor: darkMode ? '#111827' : '#fff' }} className="lg:hidden">
+        <div style={{ padding: 16, borderTop: darkMode ? '1px solid #1f2937' : '1px solid #f3f4f6', backgroundColor: darkMode ? '#111827' : '#fff' }} className="mobile-menu lg:hidden">
           {navLinks.map(l => (
             <button key={l.key} onClick={() => { onShowView(l.key); setMenuOpen(false); }}
               style={{

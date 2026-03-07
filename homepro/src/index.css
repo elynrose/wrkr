@@ -104,3 +104,22 @@ html { scroll-behavior: smooth; }
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Force hamburger on mobile/tablet (iPhone, Pixel, Samsung, etc.) — under 1024px show only hamburger */
+@media (max-width: 1023px) {
+  .app-header .desktop-nav {
+    display: none !important;
+    visibility: hidden !important;
+  }
+  .app-header .hamburger-btn {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    visibility: visible !important;
+  }
+}
+@media (min-width: 1024px) {
+  .app-header .hamburger-btn {
+    display: none !important;
+  }
+}
