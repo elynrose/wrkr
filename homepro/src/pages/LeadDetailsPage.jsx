@@ -224,11 +224,11 @@ export default function LeadDetailsPage({ leadId, onBack }) {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: surfaceBg, fontFamily: 'var(--font-family)' }}>
+    <div className="min-h-screen overflow-x-hidden" style={{ background: surfaceBg, fontFamily: 'var(--font-family)' }}>
       {/* Flash */}
       {msg && <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 200, background: '#22c55e', color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}><FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: 8 }} />{msg}</div>}
 
-      <div style={{ maxWidth: 1050, margin: '0 auto', padding: '28px 16px' }}>
+      <div className="max-w-[1050px] mx-auto px-4 py-6 sm:px-6 sm:py-7">
 
         {/* ── Header bar ── */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>

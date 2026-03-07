@@ -49,7 +49,7 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
       borderBottom: darkMode ? '1px solid #1f2937' : '1px solid #e5e7eb',
       boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
     }}>
-      <div style={{ maxWidth: '80rem', margin: '0 auto', padding: '0 16px' }}>
+      <div className="max-w-5xl lg:max-w-7xl mx-auto px-4 sm:px-6">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
 
           {/* Logo */}
@@ -66,8 +66,8 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             </span>
           </button>
 
-          {/* Desktop Nav */}
-          <nav style={{ display: 'flex', alignItems: 'center', gap: 24 }} className="hidden md:flex">
+          {/* Desktop Nav — hidden on mobile/tablet; hamburger used below lg (1024px) */}
+          <nav style={{ display: 'flex', alignItems: 'center', gap: 24 }} className="hidden lg:flex">
             {navLinks.map(l => (
               <button key={l.key} onClick={() => onShowView(l.key)} style={{
                 display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, fontWeight: 500,
@@ -80,8 +80,8 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             ))}
           </nav>
 
-          {/* Desktop Right */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }} className="hidden md:flex">
+          {/* Desktop Right — hidden on mobile/tablet */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }} className="hidden lg:flex">
             {user ? (
               /* Logged-in dropdown */
               <div ref={dropRef} style={{ position: 'relative' }}>
@@ -168,18 +168,19 @@ export default function Header({ onConsumerSignup, onProSignup, onShowView, curr
             )}
           </div>
 
-          {/* Mobile hamburger */}
+          {/* Mobile/tablet hamburger — shown below lg (1024px) */}
           <button onClick={() => setMenuOpen(!menuOpen)}
             style={{ padding: 8, background: 'none', border: 'none', cursor: 'pointer', color: darkMode ? '#f3f4f6' : '#1f2937' }}
-            className="md:hidden">
+            className="lg:hidden"
+            aria-label={menuOpen ? 'Close menu' : 'Open menu'}>
             <FontAwesomeIcon icon={menuOpen ? faXmark : faBars} style={{ width: 20, height: 20 }} />
           </button>
         </div>
       </div>
 
-      {/* Mobile Menu */}
+      {/* Mobile/tablet menu — shown when hamburger open, below lg */}
       {menuOpen && (
-        <div style={{ padding: 16, borderTop: darkMode ? '1px solid #1f2937' : '1px solid #f3f4f6', backgroundColor: darkMode ? '#111827' : '#fff' }} className="md:hidden">
+        <div style={{ padding: 16, borderTop: darkMode ? '1px solid #1f2937' : '1px solid #f3f4f6', backgroundColor: darkMode ? '#111827' : '#fff' }} className="lg:hidden">
           {navLinks.map(l => (
             <button key={l.key} onClick={() => { onShowView(l.key); setMenuOpen(false); }}
               style={{

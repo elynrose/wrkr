@@ -51,7 +51,6 @@ export default function Hero({ onConsumerSignup, onBookDemo, services = [] }) {
     background: darkMode
       ? 'linear-gradient(135deg, #111827 0%, #1f2937 50%, #111827 100%)'
       : 'linear-gradient(135deg, var(--color-primary-light) 0%, #ffffff 50%, #eff6ff 100%)',
-    padding: '80px 16px',
   };
 
   const badgeStyle = {
@@ -73,8 +72,8 @@ export default function Hero({ onConsumerSignup, onBookDemo, services = [] }) {
 
   if (isMarketing) {
     return (
-      <section style={sectionStyle}>
-        <div style={{ maxWidth: '56rem', margin: '0 auto', textAlign: 'center' }}>
+      <section className="px-4 py-12 sm:py-16 md:py-20 sm:px-6" style={sectionStyle}>
+        <div className="max-w-3xl mx-auto text-center">
           <div style={badgeStyle}>
             <FontAwesomeIcon icon={faRocket} style={{ fontSize: 12 }} />
             Lead-generation platform for local home services
@@ -123,8 +122,8 @@ export default function Hero({ onConsumerSignup, onBookDemo, services = [] }) {
   }
 
   return (
-    <section style={sectionStyle}>
-      <div style={{ maxWidth: '56rem', margin: '0 auto', textAlign: 'center' }}>
+    <section className="px-4 py-12 sm:py-16 md:py-20 sm:px-6" style={sectionStyle}>
+      <div className="max-w-3xl mx-auto text-center">
         <div style={badgeStyle}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#86efac', display: 'inline-block' }} />
           50,000+ vetted pros ready to help

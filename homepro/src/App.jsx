@@ -269,7 +269,7 @@ function AppInner() {
   if (view === 'verify-email' && verifyToken) return <VerifyEmailPage token={verifyToken} onNavigate={navigate} />;
 
   return (
-    <div style={{ fontFamily: 'var(--font-family)' }}>
+    <div className="min-h-screen overflow-x-hidden" style={{ fontFamily: 'var(--font-family)' }}>
       <Header
         onConsumerSignup={openConsumer}
         onProSignup={openPro}

@@ -64,11 +64,10 @@ export default function ServiceCategories({ services = [], onConsumerSignup, loa
   });
 
   return (
-    <section style={{
+    <section className="py-12 sm:py-16 px-0" style={{
       backgroundColor: darkMode ? '#030712' : '#f9fafb',
-      padding: '64px 0',
     }}>
-      <div style={{ maxWidth: '80rem', margin: '0 auto', padding: '0 16px' }}>
+      <div className="max-w-5xl lg:max-w-7xl mx-auto px-4 sm:px-6">
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
           <h2 style={{ fontSize: '1.875rem', fontWeight: 700, color: darkMode ? '#fff' : '#111827', marginBottom: 8 }}>
             Browse Popular Services
@@ -79,8 +78,8 @@ export default function ServiceCategories({ services = [], onConsumerSignup, loa
         </div>
       </div>
 
-      {/* Scroll container */}
-      <div style={{ position: 'relative', maxWidth: '80rem', margin: '0 auto', padding: '0 16px' }}>
+      {/* Scroll container — responsive horizontal padding */}
+      <div className="relative max-w-5xl lg:max-w-7xl mx-auto px-4 sm:px-6" style={{ position: 'relative' }}>
 
         {/* Left arrow */}
         <button onClick={() => scroll('left')} style={{ ...arrowStyle(canLeft), left: 4 }}

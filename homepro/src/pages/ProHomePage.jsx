@@ -70,11 +70,10 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
     <div style={{ fontFamily: 'var(--font-family)', color: tp }}>
 
       {/* ═══ HERO ═══ */}
-      <section style={{
+      <section className="px-4 py-12 sm:py-16 md:py-20 sm:px-6 lg:py-24" style={{
         background: dm
           ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)'
           : 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 30%, #fed7aa 100%)',
-        padding: '100px 16px 80px',
         position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', top: -120, right: -120, width: 400, height: 400, borderRadius: '50%', background: `${accent}15`, pointerEvents: 'none' }} />

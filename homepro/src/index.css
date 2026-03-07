@@ -53,3 +53,54 @@ html { scroll-behavior: smooth; }
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* Footer: responsive grid — brand full width on mobile, nav columns stack */
+.footer-grid {
+  display: grid;
+  gap: 2rem;
+  margin-bottom: 3rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px) {
+  .footer-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 2.5rem;
+  }
+  .footer-brand {
+    grid-column: span 2;
+  }
+}
+@media (min-width: 1024px) {
+  .footer-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 2.5rem;
+  }
+  .footer-brand {
+    grid-column: span 2;
+  }
+}
+
+/* Responsive container padding for main content areas */
+.page-container {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 640px) {
+  .page-container {
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+  }
+}
+@media (min-width: 1024px) {
+  .page-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+}
+
+/* Admin/Pro dashboard: form two-column grids become single column on small screens */
+@media (max-width: 639px) {
+  .admin-form-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+}

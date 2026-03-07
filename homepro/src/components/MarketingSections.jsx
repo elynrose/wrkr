@@ -32,7 +32,8 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
 
   const maxWidth = layout === 'narrow' ? '32rem' : layout === 'full' ? '100%' : '52rem';
   const sectionStyle = {
-    padding: layout === 'full' ? '80px 24px' : '72px 20px',
+    paddingTop: layout === 'full' ? 80 : 72,
+    paddingBottom: layout === 'full' ? 80 : 72,
     background: sectionBg,
     borderTop: layout === 'full' ? `3px solid ${primary}` : `1px solid ${border}`,
     position: 'relative',
@@ -41,6 +42,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
     backgroundSize: hasBgImage ? 'cover' : undefined,
     backgroundPosition: hasBgImage ? 'center' : undefined,
   };
+  const sectionClass = 'px-4 sm:px-6 md:px-8';
 
   const headlineStyle = {
     fontSize: 'clamp(1.625rem, 4vw, 2.25rem)',
@@ -132,7 +134,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
   // ── Full: bold strip, large type ──
   if (layout === 'full') {
     return (
-      <section style={sectionStyle}>
+      <section className={sectionClass} style={sectionStyle}>
         {contentWrapper(
           <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
             {headline && (
@@ -153,7 +155,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
   // ── Two-column: editorial with vertical accent ──
   if (layout === 'two-column' && (body || (Array.isArray(list) && list.length) || (Array.isArray(steps) && steps.length))) {
     return (
-      <section style={sectionStyle}>
+      <section className={sectionClass} style={sectionStyle}>
         {contentWrapper(
           <div style={{ maxWidth: '72rem', margin: '0 auto' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 56, alignItems: 'start' }}>
@@ -175,7 +177,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
   // ── Cards: step cards with gradient bar and number circle ──
   if (layout === 'cards' && Array.isArray(steps) && steps.length > 0) {
     return (
-      <section style={sectionStyle}>
+      <section className={sectionClass} style={sectionStyle}>
         {contentWrapper(
           <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
             {headline && (
@@ -198,7 +200,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
   // ── Narrow: magazine strip ──
   if (layout === 'narrow') {
     return (
-      <section style={sectionStyle}>
+      <section className={sectionClass} style={sectionStyle}>
         {contentWrapper(
           <div style={{ maxWidth: '32rem', margin: '0 auto', textAlign: 'center' }}>
             {headline && (
@@ -218,7 +220,7 @@ function SectionBlock({ headline, body, list, steps, layout = 'default', darkMod
 
   // ── Default: centered with accent line ──
   return (
-    <section style={sectionStyle}>
+    <section className={sectionClass} style={sectionStyle}>
       {contentWrapper(
         <div style={{ maxWidth, margin: '0 auto', textAlign: 'center' }}>
           {headline && (

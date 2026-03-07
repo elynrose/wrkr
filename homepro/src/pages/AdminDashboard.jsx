@@ -579,11 +579,11 @@ export default function AdminDashboard({ onShowLead }) {
   ];
 
   return (
-    <div style={{ minHeight: '100vh', background: dm ? '#0a0f1a' : '#f0f4f8', fontFamily: 'var(--font-family)' }}>
+    <div className="min-h-screen overflow-x-hidden" style={{ background: dm ? '#0a0f1a' : '#f0f4f8', fontFamily: 'var(--font-family)' }}>
       {/* Flash message */}
       {msg && <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 200, background: '#22c55e', color: '#fff', padding: '10px 20px', borderRadius: 'var(--border-radius)', fontSize: 13, fontWeight: 600, boxShadow: '0 4px 12px rgba(0,0,0,0.15)' }}><FontAwesomeIcon icon={faCheckCircle} style={{ marginRight: 8 }} />{msg}</div>}
 
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '32px 16px' }}>
+      <div className="max-w-[1100px] mx-auto px-4 py-6 sm:px-6 sm:py-8">
         {/* Title */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>

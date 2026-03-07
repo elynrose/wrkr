@@ -41,16 +41,12 @@ export default function Footer({ onNavigate }) {
   const legalPages   = navPages.filter(p => p.nav_group === 'legal' && p.show_in_nav);
 
   return (
-    <footer style={{ backgroundColor: '#111827', color: '#fff', padding: '64px 16px 32px' }}>
-      <div style={{ maxWidth: '80rem', margin: '0 auto' }}>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 40, marginBottom: 48,
-        }}>
+    <footer className="px-4 sm:px-6 py-12 sm:py-16 md:py-20" style={{ backgroundColor: '#111827', color: '#fff' }}>
+      <div className="max-w-5xl mx-auto lg:max-w-7xl">
+        <div className="footer-grid">
 
-          {/* Brand */}
-          <div style={{ gridColumn: 'span 2' }}>
+          {/* Brand — full width on mobile, span 2 on tablet+ */}
+          <div className="footer-brand">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
               <div style={{
                 width: 36, height: 36, borderRadius: 'var(--border-radius)',
@@ -135,12 +131,8 @@ export default function Footer({ onNavigate }) {
           </div>
         </div>
 
-        {/* Bottom */}
-        <div style={{
-          borderTop: '1px solid #374151', paddingTop: 24,
-          display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between',
-          alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280',
-        }}>
+        {/* Bottom — stacks on mobile */}
+        <div className="border-t border-gray-700 pt-6 flex flex-col sm:flex-row flex-wrap justify-between items-center gap-3 text-xs text-gray-400">
           <p>© {new Date().getFullYear()} {siteName}, Inc. All rights reserved.</p>
           <p>Made with ❤️ for homeowners and the pros who serve them.</p>
         </div>

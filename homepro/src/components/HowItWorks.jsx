@@ -80,8 +80,8 @@ export default function HowItWorks({ onConsumerSignup, onNavigatePro }) {
   const subColor  = darkMode ? '#9ca3af' : '#6b7280';
 
   return (
-    <section style={{ backgroundColor: darkMode ? '#111827' : '#ffffff', padding: '80px 16px' }}>
-      <div style={{ maxWidth: '80rem', margin: '0 auto' }}>
+    <section className="px-4 py-12 sm:py-16 md:py-20 sm:px-6" style={{ backgroundColor: darkMode ? '#111827' : '#ffffff' }}>
+      <div className="max-w-5xl lg:max-w-7xl mx-auto">
 
         {/* Consumer how-it-works */}
         <div style={{ marginBottom: 64 }}>

@@ -44,9 +44,8 @@ export default function LoginPage({ onNavigate }) {
   const inputBorder = darkMode ? '#334155' : '#e2e8f0';
 
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: bg, padding: '24px 16px',
+    <div className="min-h-screen flex items-center justify-center px-4 py-6 sm:px-6" style={{
+      background: bg,
       fontFamily: 'var(--font-family)',
     }}>
       <div style={{ width: '100%', maxWidth: 440 }}>

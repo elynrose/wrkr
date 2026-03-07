@@ -89,30 +89,24 @@ export default function TenantForProsPage({ slug, onNavigate, onProSignup }) {
           }}
         />
       )}
-      {/* Header */}
-      <header style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 24px', background: '#fff', borderBottom: `1px solid ${border}`,
-        position: 'sticky', top: 0, zIndex: 50,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: primary, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 16 }}>
+      {/* Header — responsive padding, wraps on small screens */}
+      <header className="sticky top-0 z-50 bg-white border-b flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-6" style={{ borderColor: border }}>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: primary, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 16, flexShrink: 0 }}>
             {siteName.charAt(0).toUpperCase()}
           </div>
-          <span style={{ fontWeight: 700, fontSize: 18, color: '#111827' }}>{siteName}</span>
-          <span style={{ fontSize: 12, color: ts, fontWeight: 600 }}>— For Pros</span>
+          <span className="font-bold text-base sm:text-lg text-gray-900 truncate">{siteName}</span>
+          <span className="hidden sm:inline text-xs text-gray-500 font-semibold">— For Pros</span>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <button onClick={goToTenantHome} style={{ fontSize: 13, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 500 }}>
-            ← Back to home
-          </button>
-        </div>
+        <button onClick={goToTenantHome} className="text-sm text-gray-500 border border-gray-300 rounded-md py-2 px-3 font-medium hover:bg-gray-50 whitespace-nowrap shrink-0">
+          ← Back to home
+        </button>
       </header>
 
-      {/* Hero */}
-      <section style={{
+      {/* Hero — responsive padding */}
+      <section className="px-4 sm:px-6 py-12 sm:py-16 md:py-20 lg:py-24" style={{
         background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 30%, #fed7aa 100%)',
-        padding: '80px 16px 64px', position: 'relative', overflow: 'hidden',
+        position: 'relative', overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', top: -120, right: -120, width: 400, height: 400, borderRadius: '50%', background: `${accent}15`, pointerEvents: 'none' }} />
         <div style={{ maxWidth: 800, margin: '0 auto', textAlign: 'center', position: 'relative', zIndex: 1 }}>

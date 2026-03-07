@@ -4,7 +4,7 @@ import {
   faSpinner, faMagnifyingGlass, faLocationDot, faShieldHalved,
   faBan, faStar, faBolt, faChevronLeft, faChevronRight, faCheck,
   faArrowRight, faEnvelope, faPhone, faGlobe, faUsers,
-  faStarHalfAlt, faRocket, faBriefcase,
+  faStarHalfAlt, faRocket, faBriefcase, faBars, faXmark,
 } from '@fortawesome/free-solid-svg-icons';
 import { getIcon } from '../lib/icons';
 import { themes as themeMap } from '../context/ThemeContext';
@@ -106,7 +106,7 @@ export default function TenantHomePage({ slug, onNavigate }) {
   };
 
   return (
-    <div style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", color: '#1e293b' }}>
+    <div className="min-h-screen" style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", color: '#1e293b' }}>
       <TenantHeader siteName={siteName} primary={primary} onNavigate={onNavigate} siteUrl={siteUrl} slug={slug} />
       <HeroSection siteName={siteName} tagline={tagline} primary={primary} services={services} proCount={proCount} onRequestService={openRequest} />
       <ServicesSection categories={categories} services={services} primary={primary} siteName={siteName} onRequestService={openRequest} />
@@ -140,40 +140,75 @@ export default function TenantHomePage({ slug, onNavigate }) {
 }
 
 function TenantHeader({ siteName, primary, onNavigate, siteUrl, slug }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const linkClass = 'block w-full text-left py-3 px-4 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors';
   return (
-    <header style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '16px 24px', background: '#fff', borderBottom: '1px solid #e5e7eb',
-      position: 'sticky', top: 0, zIndex: 50,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: 8, background: primary,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: '#fff', fontWeight: 800, fontSize: 16,
-        }}>
-          {siteName.charAt(0).toUpperCase()}
+    <header
+      className="sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3 sm:px-6 lg:px-6"
+      style={{ borderBottomColor: '#e5e7eb' }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <div style={{
+            width: 36, height: 36, borderRadius: 8, background: primary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontWeight: 800, fontSize: 16, flexShrink: 0,
+          }}>
+            {siteName.charAt(0).toUpperCase()}
+          </div>
+          <span className="font-bold text-lg text-gray-900 truncate">{siteName}</span>
         </div>
-        <span style={{ fontWeight: 700, fontSize: 18, color: '#111827' }}>{siteName}</span>
-      </div>
-      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-        {slug && (
-          <a href={`#t/${slug}/for-pros`} onClick={(e) => { e.preventDefault(); window.location.hash = `#t/${slug}/for-pros`; window.scrollTo(0, 0); }}
-            style={{ fontSize: 14, color: primary, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <FontAwesomeIcon icon={faBriefcase} style={{ width: 14 }} /> For Pros
-          </a>
-        )}
-        {siteUrl && (
-          <a href={siteUrl} target="_blank" rel="noopener noreferrer"
-            style={{ fontSize: 14, color: primary, fontWeight: 600, textDecoration: 'none' }}>
-            Visit Site <FontAwesomeIcon icon={faArrowRight} style={{ width: 12, marginLeft: 4 }} />
-          </a>
-        )}
-        <button onClick={() => onNavigate('home')}
-          style={{ fontSize: 13, color: '#6b7280', background: 'none', border: '1px solid #d1d5db', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontWeight: 500 }}>
-          ← Back
+        {/* Desktop nav — hidden on mobile/tablet */}
+        <div className="hidden lg:flex items-center gap-3">
+          {slug && (
+            <a href={`#t/${slug}/for-pros`} onClick={(e) => { e.preventDefault(); window.location.hash = `#t/${slug}/for-pros`; window.scrollTo(0, 0); }}
+              style={{ fontSize: 14, color: primary, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <FontAwesomeIcon icon={faBriefcase} style={{ width: 14 }} /> For Pros
+            </a>
+          )}
+          {siteUrl && (
+            <a href={siteUrl} target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 14, color: primary, fontWeight: 600, textDecoration: 'none' }}>
+              Visit Site <FontAwesomeIcon icon={faArrowRight} style={{ width: 12, marginLeft: 4 }} />
+            </a>
+          )}
+          <button onClick={() => onNavigate('home')}
+            className="text-sm text-gray-500 border border-gray-300 rounded-md py-1.5 px-3.5 font-medium hover:bg-gray-50">
+            ← Back
+          </button>
+        </div>
+        {/* Hamburger — mobile/tablet only */}
+        <button
+          type="button"
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="lg:hidden p-2 rounded-lg text-gray-700 hover:bg-gray-100"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+        >
+          <FontAwesomeIcon icon={menuOpen ? faXmark : faBars} style={{ width: 20, height: 20 }} />
         </button>
       </div>
+      {/* Mobile/tablet dropdown menu */}
+      {menuOpen && (
+        <div className="lg:hidden mt-2 pt-2 border-t border-gray-200 flex flex-col gap-1">
+          {slug && (
+            <a href={`#t/${slug}/for-pros`} onClick={(e) => { e.preventDefault(); window.location.hash = `#t/${slug}/for-pros`; window.scrollTo(0, 0); setMenuOpen(false); }}
+              className={linkClass} style={{ color: primary }}>
+              <FontAwesomeIcon icon={faBriefcase} className="w-4 mr-2" /> For Pros
+            </a>
+          )}
+          {siteUrl && (
+            <a href={siteUrl} target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}
+              className={linkClass} style={{ color: primary }}>
+              Visit Site <FontAwesomeIcon icon={faArrowRight} className="w-3 ml-1" />
+            </a>
+          )}
+          <button onClick={() => { onNavigate('home'); setMenuOpen(false); }}
+            className={linkClass + ' text-gray-600 border border-gray-300'}
+          >
+            ← Back to main site
+          </button>
+        </div>
+      )}
     </header>
   );
 }

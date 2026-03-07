@@ -168,8 +168,8 @@ export default function ProDashboard({ onProSignup }) {
   const isUnlimited = creditData?.isUnlimited;
 
   return (
-    <div style={{ background: surfaceBg, minHeight: '100vh', padding: '32px 16px', fontFamily: 'inherit' }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+    <div className="min-h-screen overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8" style={{ background: surfaceBg, fontFamily: 'inherit' }}>
+      <div className="max-w-[1100px] mx-auto">
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
