@@ -43,8 +43,19 @@ router.post('/check-db', async (req, res) => {
   }
 });
 
-// POST /api/install/run — run schema and create admin (no auth)
+// POST /api/install/run — run schema and create admin (no auth).
+// Security: only allow when app is not yet installed; otherwise return 410.
 router.post('/run', async (req, res) => {
+  try {
+    await db.query('SELECT 1 FROM users LIMIT 1');
+    const [[{ n }]] = await db.query('SELECT COUNT(*) AS n FROM users');
+    if (n > 0) {
+      return res.status(410).json({ error: 'App is already installed. Install endpoint is disabled.' });
+    }
+  } catch (_) {
+    // DB not set up or no users — allow install to proceed
+  }
+
   const { host, port, user, password, database, adminEmail, adminPassword, adminName } = req.body || {};
   if (!adminEmail || !adminPassword) {
     return res.status(400).json({ error: 'Admin email and password are required' });

@@ -110,9 +110,15 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   let event;
 
   try {
-    event = endpointSecret
-      ? stripe.webhooks.constructEvent(req.body, sig, endpointSecret)
-      : JSON.parse(req.body);
+    if (!endpointSecret || !endpointSecret.trim()) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('Stripe webhook: STRIPE_WEBHOOK_SECRET is required in production');
+        return res.status(503).json({ error: 'Webhook not configured' });
+      }
+      event = JSON.parse(req.body);
+    } else {
+      event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+    }
   } catch (err) {
     console.error('Webhook signature failed:', err.message);
     return res.status(400).json({ error: 'Webhook signature verification failed' });

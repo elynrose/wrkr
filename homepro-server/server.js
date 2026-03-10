@@ -6,11 +6,15 @@
 require('dotenv').config();
 const express = require('express');
 const cors    = require('cors');
+const helmet  = require('helmet');
 const path   = require('path');
 const fs     = require('fs');
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
+
+// Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
+app.use(helmet({ contentSecurityPolicy: false })); // CSP disabled by default; enable and tune for your frontend when ready
 
 // When deployed with frontend (e.g. full-stack Heroku from repo root), serve Vite build
 const clientDist = path.join(__dirname, '..', 'homepro', 'dist');

@@ -136,9 +136,13 @@ function listSetupTemplates() {
 
 function loadSetupTemplate(templateId) {
   try {
+    // Restrict to safe template id (alphanumeric, hyphen, underscore) to prevent path traversal
+    if (!templateId || !/^[a-z0-9_-]+$/i.test(String(templateId))) return null;
     const p = path.join(SETUP_TEMPLATES_DIR, `${templateId}.json`);
-    if (!fs.existsSync(p)) return null;
-    const raw = fs.readFileSync(p, 'utf8');
+    const resolved = path.resolve(p);
+    const resolvedDir = path.resolve(SETUP_TEMPLATES_DIR);
+    if (!resolved.startsWith(resolvedDir) || !fs.existsSync(resolved)) return null;
+    const raw = fs.readFileSync(resolved, 'utf8');
     return JSON.parse(raw);
   } catch (err) {
     console.error('[setup-templates] loadSetupTemplate error:', err);
