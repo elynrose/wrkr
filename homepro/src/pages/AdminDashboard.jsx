@@ -801,9 +801,9 @@ export default function AdminDashboard({ onShowLead }) {
                 <Td dm={dm}>{u.last_login ? new Date(u.last_login).toLocaleString() : '—'}</Td>
                 <Td dm={dm}>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    <Btn small onClick={() => setEditUser({ id: u.id, email: u.email, role: u.role, firstName: u.first_name, lastName: u.last_name, phone: u.phone, isActive: u.is_active })}><FontAwesomeIcon icon={faPen} />Edit</Btn>
+                    <Btn small onClick={() => setEditUser({ id: u.id, email: u.email, role: u.role, firstName: u.first_name, lastName: u.last_name, phone: u.phone, isActive: u.is_active })} title="Edit"><FontAwesomeIcon icon={faPen} /></Btn>
                     <Btn small variant={u.is_active ? 'danger' : 'success'} onClick={() => toggleUser(u.id, u.is_active)} title={u.is_active ? 'Deactivate' : 'Activate'}><FontAwesomeIcon icon={u.is_active ? faToggleOff : faToggleOn} /></Btn>
-                    {u.role === 'pro' && <Btn small onClick={() => setCreditAdjust({ proId: u.pro_id || u.id, proName: `${u.first_name||''} ${u.last_name||''}`.trim() || u.email, amount: '', reason: '' })}><FontAwesomeIcon icon={faCubes} />Credits</Btn>}
+                    {u.role === 'pro' && <Btn small onClick={() => setCreditAdjust({ proId: u.pro_id || u.id, proName: `${u.first_name||''} ${u.last_name||''}`.trim() || u.email, amount: '', reason: '' })} title="Credits"><FontAwesomeIcon icon={faCubes} /></Btn>}
                     {u.is_active && user?.id !== u.id && <Btn small variant="danger" onClick={() => deleteUser(u.id)}><FontAwesomeIcon icon={faTrash} /></Btn>}
                   </div>
                 </Td>
@@ -1034,7 +1034,7 @@ export default function AdminDashboard({ onShowLead }) {
                 <div style={{ fontSize: 12, color: ts, marginBottom: 10 }}>{p.price_yearly > 0 ? `$${p.price_yearly}/yr` : 'Free'} · {p.lead_credits} credits · {p.max_service_areas} areas</div>
                 <div style={{ fontSize: 11, color: ts, marginBottom: 12 }}>Stripe: {p.stripe_price_id || '—'}</div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Btn small onClick={() => setEditPlan({ ...p, priceMonthly: p.price_monthly, priceYearly: p.price_yearly, leadCredits: p.lead_credits, maxServiceAreas: p.max_service_areas, maxServices: p.max_services, stripePriceId: p.stripe_price_id, isPopular: !!p.is_popular, isActive: !!p.is_active, sortOrder: p.sort_order })}><FontAwesomeIcon icon={faPen} />Edit</Btn>
+                  <Btn small onClick={() => setEditPlan({ ...p, priceMonthly: p.price_monthly, priceYearly: p.price_yearly, leadCredits: p.lead_credits, maxServiceAreas: p.max_service_areas, maxServices: p.max_services, stripePriceId: p.stripe_price_id, isPopular: !!p.is_popular, isActive: !!p.is_active, sortOrder: p.sort_order })} title="Edit"><FontAwesomeIcon icon={faPen} /></Btn>
                   <Btn small variant="danger" onClick={() => deletePlan(p.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
                 </div>
               </Card>
@@ -1070,7 +1070,7 @@ export default function AdminDashboard({ onShowLead }) {
                   <div style={{ fontSize: 15, fontWeight: 700, color: tp }}>{b.label}</div>
                   <div style={{ fontSize: 12, color: ts }}>{b.credits} credits · ${Number(b.price).toFixed(2)}</div>
                   <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                    <Btn small onClick={() => setEditCreditBundle({ ...b })}><FontAwesomeIcon icon={faPen} />Edit</Btn>
+                    <Btn small onClick={() => setEditCreditBundle({ ...b })} title="Edit"><FontAwesomeIcon icon={faPen} /></Btn>
                     <Btn small variant="danger" onClick={() => deleteCreditBundle(b.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
                   </div>
                 </Card>
