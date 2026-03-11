@@ -100,13 +100,32 @@ router.get('/default-plans', authenticate, requireRole('admin'), async (req, res
   }
 });
 
-// POST /api/subscriptions/copy-from-default — admin: copy plans from default tenant (1) to current tenant; stripe_price_id left empty for admin to set
+// Seed plans for default tenant when none exist (e.g. after admin deleted all)
+const DEFAULT_PLANS_SEED = [
+  { name: 'Free', slug: 'free', price_monthly: 0, price_yearly: 0, lead_credits: 0, max_service_areas: 2, max_services: 2, features: '{"badge": false, "priority_listing": false, "analytics": "basic", "support": "community"}', is_popular: false, sort_order: 1 },
+  { name: 'Starter', slug: 'starter', price_monthly: 29, price_yearly: 290, lead_credits: 10, max_service_areas: 5, max_services: 5, features: '{"badge": true, "priority_listing": false, "analytics": "basic", "support": "email"}', is_popular: false, sort_order: 2 },
+  { name: 'Professional', slug: 'professional', price_monthly: 79, price_yearly: 790, lead_credits: 30, max_service_areas: 15, max_services: 10, features: '{"badge": true, "priority_listing": true, "analytics": "advanced", "support": "priority_email"}', is_popular: true, sort_order: 3 },
+  { name: 'Enterprise', slug: 'enterprise', price_monthly: 199, price_yearly: 1990, lead_credits: 100, max_service_areas: 50, max_services: 50, features: '{"badge": true, "priority_listing": true, "analytics": "full", "support": "dedicated"}', is_popular: false, sort_order: 4 },
+];
+
+// POST /api/subscriptions/copy-from-default — admin: copy plans from default tenant (1) to current tenant; or restore seed plans if default tenant has none
 router.post('/copy-from-default', authenticate, requireRole('admin'), async (req, res) => {
   const tid = req.tenant?.id || 1;
-  if (tid === 1) {
-    return res.status(400).json({ error: 'Default tenant already has these plans. Use Edit to change Stripe Price ID.' });
-  }
   try {
+    if (tid === 1) {
+      const [[{ count }]] = await db.query('SELECT COUNT(*) AS count FROM subscription_plans WHERE tenant_id = 1');
+      if (count === 0) {
+        for (const p of DEFAULT_PLANS_SEED) {
+          await db.query(
+            `INSERT INTO subscription_plans (tenant_id, name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order)
+             VALUES (1, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [p.name, p.slug, p.price_monthly, p.price_yearly, p.lead_credits, p.max_service_areas, p.max_services, p.features, !!p.is_popular, p.sort_order]
+          );
+        }
+        return res.json({ message: 'Default plans restored (Free, Starter, Professional, Enterprise). Edit each plan to set your Stripe Price ID.', copied: DEFAULT_PLANS_SEED.length });
+      }
+      return res.json({ message: "You're on the default tenant. These plans are already the template—use Edit on each plan to set your Stripe Price ID.", copied: 0 });
+    }
     const [sourcePlans] = await db.query(
       'SELECT name, slug, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order FROM subscription_plans WHERE tenant_id = 1 ORDER BY sort_order ASC'
     );

@@ -982,18 +982,20 @@ export default function AdminDashboard({ onShowLead }) {
                 try {
                   const r = await api.post('/subscriptions/copy-from-default', {});
                   if (r.error) { flash(r.error); setSaving(false); return; }
-                  flash(r.message || `Copied ${r.copied ?? 0} plan(s). Add your Stripe Price ID for each.`);
-                  const updated = await api.get('/subscriptions/admin-plans?all=true');
-                  setPlans(Array.isArray(updated) ? updated : []);
+                  flash(r.message || (r.copied ? `Copied ${r.copied} plan(s). Add your Stripe Price ID for each.` : 'Done.'));
+                  if (r.copied > 0) {
+                    const updated = await api.get('/subscriptions/admin-plans?all=true');
+                    setPlans(Array.isArray(updated) ? updated : []);
+                  }
                 } catch (e) { flash(e?.message || 'Copy failed'); }
                 setSaving(false);
-              }} disabled={saving} title="Copy plan structure from default (super admin) tenant. You only need to set your own Stripe Price ID per plan.">
+              }} disabled={saving} title="Other tenants: copy plan structure from default so you only set your own Stripe Price ID. Default tenant: just Edit each plan to set Stripe Price ID.">
                 Copy plans from default
               </Btn>
               <Btn onClick={() => setEditPlan({ name: '', slug: '', priceMonthly: 0, priceYearly: 0, leadCredits: 0, maxServiceAreas: 5, maxServices: 3, stripePriceId: '', isPopular: false, isActive: true, sortOrder: plans.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Plan</Btn>
             </div>
           </div>
-          <p style={{ fontSize: 12, color: ts, marginBottom: 14 }}>Copy plans from default to use the same structure; then set your Stripe Price ID on each plan for checkout.</p>
+          <p style={{ fontSize: 12, color: ts, marginBottom: 14 }}>On the default tenant (e.g. main site): edit each plan to set Stripe Price ID. Other tenants: use &quot;Copy plans from default&quot; then set your Stripe Price ID per plan.</p>
 
           {editPlan && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editPlan.id ? 'Edit Plan' : 'New Plan'}</h4>
