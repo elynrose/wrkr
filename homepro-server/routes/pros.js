@@ -7,9 +7,9 @@ const { addCredits } = require('../services/credits');
 const { sendProWelcomeEmail } = require('../services/email');
 const { spamProtect } = require('../middleware/spam');
 
-// POST /api/pros — pro signup (creates user + pro profile). Optional tenant_slug for tenant-site signups.
+// POST /api/pros — pro signup (creates user + pro profile). Optional tenant_slug, planSlug (from subscription_plans) for Stripe signup flow.
 router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minTimingMs: 4000 }), async (req, res) => {
-  const { businessName, ownerName, email, phone, password, services, zips, cities, plan, yearsInBusiness, licenseNumber, tenant_slug } = req.body;
+  const { businessName, ownerName, email, phone, password, services, zips, cities, plan, planSlug, yearsInBusiness, licenseNumber, tenant_slug } = req.body;
   if (!businessName || !email) return res.status(400).json({ error: 'Business name and email are required' });
 
   let tenantId = req.tenant?.id || 1;
@@ -17,6 +17,23 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
     const [tenantRows] = await db.query('SELECT id FROM tenants WHERE slug = ? AND status = ? LIMIT 1', [tenant_slug, 'active']);
     if (tenantRows.length) tenantId = tenantRows[0].id;
   }
+
+  // Resolve plan: planSlug (e.g. starter, professional) from subscription_plans, or legacy plan key
+  const legacyPlanMap = { 'pay-per-lead': 'starter', 'monthly': 'professional', 'enterprise': 'enterprise' };
+  let resolvedSlug = (planSlug && typeof planSlug === 'string') ? planSlug.trim() : (legacyPlanMap[plan] || 'free');
+  let initialCredits = 10;
+  const [[planRow]] = await db.query(
+    'SELECT slug, lead_credits, stripe_price_id FROM subscription_plans WHERE tenant_id = ? AND (slug = ? OR slug = ?) AND is_active = TRUE LIMIT 1',
+    [tenantId, resolvedSlug, legacyPlanMap[plan] || '']
+  );
+  if (planRow) {
+    resolvedSlug = planRow.slug;
+    // Paid plans (have Stripe Price ID): give 0 credits until checkout; webhook adds plan credits after payment
+    initialCredits = planRow.stripe_price_id ? 0 : Math.max(0, parseInt(planRow.lead_credits, 10) || 10);
+  } else if (!planRow && (planSlug || plan)) {
+    initialCredits = plan === 'monthly' ? 30 : (plan === 'enterprise' ? 100 : 10);
+  }
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -30,21 +47,19 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
     );
     const userId = userResult.insertId;
 
-    // Create pro
-    const planMap = { 'pay-per-lead': 'starter', 'monthly': 'professional', 'enterprise': 'enterprise' };
+    // Create pro (subscription_plan set; paid plans get activated after Stripe checkout via webhook)
     const [proResult] = await conn.query(
       `INSERT INTO pros (tenant_id, user_id, business_name, phone, years_in_business, license_number, subscription_plan, lead_credits)
        VALUES (?,?,?,?,?,?,?,?)`,
-      [tenantId, userId, businessName, phone, yearsInBusiness, licenseNumber, planMap[plan] || 'free', plan === 'monthly' ? 30 : 10]
+      [tenantId, userId, businessName, phone, yearsInBusiness, licenseNumber, resolvedSlug, initialCredits]
     );
     const proId = proResult.insertId;
-    const initialCredits = plan === 'monthly' ? 30 : 10;
 
-    // Log signup credits
+    // Log signup credits (free/signup bonus; paid plan credits come after Stripe webhook)
     await conn.query(
       `INSERT INTO credit_transactions (tenant_id, pro_id, user_id, type, amount, balance_after, description)
        VALUES (?, ?, ?, 'signup_bonus', ?, ?, ?)`,
-      [tenantId, proId, userId, initialCredits, initialCredits, `Welcome bonus: ${initialCredits} credits (${planMap[plan] || 'free'} plan)`]
+      [tenantId, proId, userId, initialCredits, initialCredits, `Welcome bonus: ${initialCredits} credits (${resolvedSlug} plan)`]
     );
 
     // Services

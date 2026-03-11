@@ -1,21 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faXmark, faLocationDot, faBuilding, faUser, faEnvelope, faPhone, faLock,
-  faChevronRight, faChevronLeft, faCheckCircle, faSpinner, faPlus,
+  faChevronRight, faChevronLeft, faCheckCircle, faSpinner, faPlus, faCreditCard,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { signupPro } from '../services/api';
+import { signupPro, getPlans, createCheckout } from '../services/api';
 import useSpamProtect from '../hooks/useSpamProtect';
 
 const POPULAR_ZIPS = ['10001','90210','60601','77001','30301','85001','98101','33101'];
-
-const PLANS = [
-  { key:'pay-per-lead', name:'Pay Per Lead',          price:'$15–$45', unit:'per lead',  desc:'Only pay when you receive a qualified lead. Best for new businesses.', highlight:false },
-  { key:'monthly',      name:'Monthly Subscription',  price:'$99',     unit:'/month',    desc:'Unlimited leads in your chosen ZIP codes. Best for established pros.',  highlight:true  },
-  { key:'enterprise',   name:'Enterprise',             price:'Custom',  unit:'',          desc:'Multi-location businesses with a dedicated account manager.',            highlight:false },
-];
 
 export default function ProSignupModal({ services = [], tenantSlug, onClose, onSuccess }) {
   const { darkMode } = useTheme();
@@ -24,12 +18,28 @@ export default function ProSignupModal({ services = [], tenantSlug, onClose, onS
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [plans, setPlans] = useState([]);
   const [form, setForm] = useState({
     businessName:'', ownerName:'', email:'', phone:'', password:'',
     services:[], zips:[], cities:[],
     zipInput:'', cityInput:'',
-    plan:'monthly', yearsInBusiness:'', licenseNumber:'',
+    plan:'free', yearsInBusiness:'', licenseNumber:'',
   });
+
+  // Load subscription plans when reaching step 4 (Choose plan)
+  useEffect(() => {
+    if (step === 4 && plans.length === 0) {
+      getPlans()
+        .then((data) => {
+          const list = Array.isArray(data) ? data : [];
+          setPlans(list);
+          if (list.length && !list.some((p) => p.slug === form.plan)) {
+            setForm((f) => ({ ...f, plan: list[0].slug }));
+          }
+        })
+        .catch(() => setPlans([]));
+    }
+  }, [step, plans.length]);
 
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const toggleService = (s) => setForm(f => ({
@@ -59,10 +69,20 @@ export default function ProSignupModal({ services = [], tenantSlug, onClose, onS
     try {
       const payload = { ...form, ...spamFields() };
       if (tenantSlug) payload.tenant_slug = tenantSlug;
+      payload.planSlug = form.plan;
       const data = await signupPro(payload);
       if (data.token) {
         localStorage.setItem('hp_token', data.token);
         await fetchMe();
+        const selectedPlan = plans.find((p) => p.slug === form.plan);
+        if (selectedPlan?.stripe_price_id) {
+          const checkout = await createCheckout(form.plan, 'monthly');
+          if (checkout?.url) {
+            onClose();
+            window.location.href = checkout.url;
+            return;
+          }
+        }
       }
       onSuccess?.();
       onClose();
@@ -264,32 +284,48 @@ export default function ProSignupModal({ services = [], tenantSlug, onClose, onS
             </div>
           )}
 
-          {/* Step 4 — Plan */}
+          {/* Step 4 — Plan (from subscription_plans; paid plans go to Stripe after signup) */}
           {step === 4 && (
             <div className="space-y-4">
               <h3 className="font-semibold">Choose Your Plan</h3>
-              <div className="space-y-3">
-                {PLANS.map(plan => (
-                  <button key={plan.key} onClick={() => update('plan', plan.key)}
-                    className={`w-full p-4 rounded-xl border-2 text-left transition-all relative ${form.plan === plan.key ? 'border-[var(--color-accent)]' : darkMode ? 'border-gray-700 hover:border-gray-500' : 'border-gray-200 hover:border-gray-300'}`}
-                    style={{ borderRadius:'var(--border-radius)' }}>
-                    {plan.highlight && (
-                      <span className="absolute top-2 right-3 text-xs font-bold text-white px-2 py-0.5 rounded-full"
-                        style={{ backgroundColor:'var(--color-accent)' }}>MOST POPULAR</span>
-                    )}
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className={`font-bold text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>{plan.name}</p>
-                        <p className={`text-xs mt-1 ${subCls}`}>{plan.desc}</p>
+              <p className={`text-sm ${subCls}`}>Paid plans require payment via Stripe after you create your account.</p>
+              {plans.length === 0 ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                  <FontAwesomeIcon icon={faSpinner} spin /> Loading plans...
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {plans.map((plan) => (
+                    <button key={plan.id || plan.slug} type="button" onClick={() => update('plan', plan.slug)}
+                      className={`w-full p-4 rounded-xl border-2 text-left transition-all relative ${form.plan === plan.slug ? 'border-[var(--color-accent)]' : darkMode ? 'border-gray-700 hover:border-gray-500' : 'border-gray-200 hover:border-gray-300'}`}
+                      style={{ borderRadius:'var(--border-radius)' }}>
+                      {plan.is_popular && (
+                        <span className="absolute top-2 right-3 text-xs font-bold text-white px-2 py-0.5 rounded-full"
+                          style={{ backgroundColor:'var(--color-accent)' }}>POPULAR</span>
+                      )}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className={`font-bold text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>{plan.name}</p>
+                          <p className={`text-xs mt-1 ${subCls}`}>
+                            {plan.lead_credits ? `${plan.lead_credits} credits/month` : 'Free tier'}
+                            {plan.stripe_price_id && (
+                              <span className="ml-1.5 inline-flex items-center gap-1">
+                                <FontAwesomeIcon icon={faCreditCard} className="w-3" /> Pay with card after signup
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="font-extrabold text-lg" style={{ color:'var(--color-accent)' }}>
+                            {plan.price_monthly > 0 ? `$${Number(plan.price_monthly)}` : 'Free'}
+                          </p>
+                          <p className={`text-xs ${subCls}`}>{plan.price_monthly > 0 ? '/month' : ''}</p>
+                        </div>
                       </div>
-                      <div className="text-right ml-4 flex-shrink-0">
-                        <p className="font-extrabold text-lg" style={{ color:'var(--color-accent)' }}>{plan.price}</p>
-                        <p className={`text-xs ${subCls}`}>{plan.unit}</p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
+                    </button>
+                  ))}
+                </div>
+              )}
               {error && <p className="text-sm text-red-500 font-medium">{error}</p>}
             </div>
           )}

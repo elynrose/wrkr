@@ -72,6 +72,10 @@ The API uses `FRONTEND_URL` for redirects (Stripe, emails, claim links, etc.).
 - **Full-stack on Heroku (B):** Keep `FRONTEND_URL` as the same app URL (already set).
 - **Frontend on shared hosting / Vercel / Netlify:** Set `FRONTEND_URL` to that site’s URL. See `homepro/SHARED-HOSTING.md` for building and uploading the frontend.
 
+## Staging environment
+
+To run a separate **staging** app (same repo, different Heroku app + DB): see **[HEROKU-STAGING.md](./HEROKU-STAGING.md)**.
+
 ## Useful commands
 
 - **Logs:** `heroku logs --tail -a infinite-brushlands-77607`
