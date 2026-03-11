@@ -87,6 +87,49 @@ router.delete('/plans/:id', authenticate, requireRole('admin'), async (req, res)
   }
 });
 
+// GET /api/subscriptions/default-plans — admin: list plans from default tenant (tenant 1) for preview/copy
+router.get('/default-plans', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT id, name, slug, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order FROM subscription_plans WHERE tenant_id = 1 ORDER BY sort_order ASC'
+    );
+    res.json(rows || []);
+  } catch (err) {
+    console.error('GET /subscriptions/default-plans error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/subscriptions/copy-from-default — admin: copy plans from default tenant (1) to current tenant; stripe_price_id left empty for admin to set
+router.post('/copy-from-default', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
+  if (tid === 1) {
+    return res.status(400).json({ error: 'Default tenant already has these plans. Use Edit to change Stripe Price ID.' });
+  }
+  try {
+    const [sourcePlans] = await db.query(
+      'SELECT name, slug, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order FROM subscription_plans WHERE tenant_id = 1 ORDER BY sort_order ASC'
+    );
+    const [existing] = await db.query('SELECT slug FROM subscription_plans WHERE tenant_id = ?', [tid]);
+    const existingSlugs = new Set((existing || []).map(r => r.slug));
+    let copied = 0;
+    for (const p of sourcePlans || []) {
+      if (existingSlugs.has(p.slug)) continue;
+      await db.query(
+        `INSERT INTO subscription_plans (tenant_id, name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order)
+         VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [tid, p.name, p.slug, p.price_monthly, p.price_yearly, p.lead_credits, p.max_service_areas, p.max_services, p.features || '{}', !!p.is_popular, p.sort_order ?? 0]
+      );
+      existingSlugs.add(p.slug);
+      copied++;
+    }
+    res.json({ message: `Copied ${copied} plan(s) from default. Add your Stripe Price ID for each plan to enable checkout.`, copied });
+  } catch (err) {
+    console.error('POST /subscriptions/copy-from-default error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
 // GET /api/subscriptions/current — current user's subscription
 router.get('/current', authenticate, requireRole('pro'), async (req, res) => {
   const tid = req.tenant?.id || 1;
