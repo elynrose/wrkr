@@ -115,7 +115,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         console.error('Stripe webhook: STRIPE_WEBHOOK_SECRET is required in production');
         return res.status(503).json({ error: 'Webhook not configured' });
       }
-      event = JSON.parse(req.body);
+      const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : req.body;
+      event = typeof raw === 'string' ? JSON.parse(raw) : raw;
     } else {
       event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
     }
@@ -149,6 +150,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
         if (session.metadata?.type === 'lead_bundle' || session.metadata?.type === 'credit_purchase') {
           const credits = parseInt(session.metadata.credits) || 10;
+          const amount = session.amount_total != null ? session.amount_total / 100 : credits * 3.00;
           const [[proUser2]] = await db.query('SELECT user_id FROM pros WHERE id = ?', [proId]);
           await addCredits(
             parseInt(proId), proUser2?.user_id || 0, credits, 'purchase',
@@ -157,7 +159,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           );
           await db.query(
             'INSERT INTO payments (user_id, pro_id, stripe_payment_id, amount, payment_type, status, description) SELECT user_id,?,?,?,?,?,? FROM pros WHERE id = ?',
-            [proId, session.payment_intent, credits * 3.00, 'lead_bundle', 'succeeded', `${credits} lead credits`, proId]
+            [proId, session.payment_intent, amount, 'lead_bundle', 'succeeded', `${credits} lead credits`, proId]
           );
         }
         break;

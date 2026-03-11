@@ -72,6 +72,22 @@ async function provisionTenant(tenantId, conn) {
     );
   }
 
+  // Copy credit bundles (top-up packages) from tenant 1
+  try {
+    const [defaultBundles] = await (conn || db).query(
+      'SELECT label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order FROM credit_bundles WHERE tenant_id = 1'
+    );
+    for (const b of defaultBundles || []) {
+      await (conn || db).query(
+        `INSERT INTO credit_bundles (tenant_id, label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [tenantId, b.label, b.credits, b.price, b.price_per_credit, b.stripe_price_id, b.is_active !== false, b.sort_order || 0]
+      );
+    }
+  } catch (_) {
+    // credit_bundles table may not exist yet
+  }
+
   // Copy categories and services from tenant 1
   const [defaultCats] = await (conn || db).query(
     'SELECT name, slug, icon_class, description, tags, sort_order FROM categories WHERE tenant_id = 1 AND parent_id IS NULL'

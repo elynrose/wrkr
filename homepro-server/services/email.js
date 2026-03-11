@@ -1,6 +1,7 @@
 /**
- * Email service: SMTP per tenant from settings (email group). When email is disabled or
- * SMTP not configured, sendEmail logs and returns { mock: true } so callers don't throw.
+ * Email service: SMTP per tenant from settings (email group).
+ * Supports SendGrid via SENDGRID_API_KEY env: uses smtp.sendgrid.net with user "apikey" and password = API key.
+ * When email is disabled or SMTP not configured, sendEmail logs and returns { mock: true } so callers don't throw.
  */
 const nodemailer = require('nodemailer');
 const db = require('../db');
@@ -52,20 +53,37 @@ function clearTemplateCache() {
   templateCacheExpiry = 0;
 }
 
+/** SendGrid SMTP: host, port, and auth when SENDGRID_API_KEY is set */
+const SENDGRID_SMTP = {
+  host: 'smtp.sendgrid.net',
+  port: 587,
+  secure: false,
+  auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY || '' },
+};
+
 async function getTransporter(tenantId = 1) {
   const tid = tenantId || 1;
   if (transporterByTenant.has(tid)) return transporterByTenant.get(tid);
   const cfg = await loadConfig(tid);
-  const host = (cfg.smtp_host || '').trim();
-  const port = parseInt(cfg.smtp_port) || 587;
-  const secure = cfg.smtp_secure === 'true' || cfg.smtp_secure === '1';
-  const user = (cfg.smtp_user || '').trim();
-  const pass = cfg.smtp_password;
+  let host = (cfg.smtp_host || '').trim();
+  let port = parseInt(cfg.smtp_port) || 587;
+  let secure = cfg.smtp_secure === 'true' || cfg.smtp_secure === '1';
+  let user = (cfg.smtp_user || '').trim();
+  let pass = cfg.smtp_password;
+
+  // Use SendGrid SMTP when SENDGRID_API_KEY is set and no custom SMTP host is configured
+  if (!host && process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.trim()) {
+    host = SENDGRID_SMTP.host;
+    port = SENDGRID_SMTP.port;
+    secure = SENDGRID_SMTP.secure;
+    user = SENDGRID_SMTP.auth.user;
+    pass = SENDGRID_SMTP.auth.pass;
+  }
 
   if (!host) return null;
 
   const opts = { host, port, secure };
-  if (user) opts.auth = { user, pass };
+  if (user && pass) opts.auth = { user, pass };
   const tp = nodemailer.createTransport(opts);
   transporterByTenant.set(tid, tp);
   return tp;
@@ -83,10 +101,11 @@ async function getEmailConfigStatus(tenantId = 1) {
     return { ready: false, reason: 'Enable "Email Enabled" and save settings first' };
   }
   const host = (cfg.smtp_host || '').trim();
-  if (!host) {
-    return { ready: false, reason: 'SMTP Host is required (e.g. localhost for MailHog, or smtp.mailtrap.io)' };
+  const useSendGrid = !host && process.env.SENDGRID_API_KEY && process.env.SENDGRID_API_KEY.trim();
+  if (!host && !useSendGrid) {
+    return { ready: false, reason: 'Configure SMTP in Admin → Settings → Email, or set SENDGRID_API_KEY in environment for SendGrid' };
   }
-  return { ready: true };
+  return { ready: true, reason: useSendGrid ? 'SendGrid (SENDGRID_API_KEY)' : undefined };
 }
 
 async function sendEmail({ to, subject, html, text, tenantId }) {

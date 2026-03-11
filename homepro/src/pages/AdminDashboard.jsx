@@ -137,12 +137,14 @@ export default function AdminDashboard({ onShowLead }) {
   const [categories, setCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [plans, setPlans] = useState([]);
+  const [creditBundles, setCreditBundles] = useState([]);
   const [settings, setSettings] = useState([]);
   const [pages, setPages] = useState([]);
   const [searchQ, setSearchQ] = useState('');
 
   // CRUD editing state
   const [editPlan, setEditPlan] = useState(null);
+  const [editCreditBundle, setEditCreditBundle] = useState(null);
   const [editCat, setEditCat] = useState(null);
   const [editSvc, setEditSvc] = useState(null);
   const [editPage, setEditPage] = useState(null);
@@ -214,12 +216,13 @@ export default function AdminDashboard({ onShowLead }) {
       api.get('/categories/admin-list'),
       api.get('/services/admin-list?all=true'),
       api.get('/subscriptions/admin-plans?all=true'),
+      api.get('/credits/admin/bundles').catch(() => []),
       api.get('/settings/all'),
       api.get('/pages?all=true'),
       api.get('/templates'),
       api.get('/admin/how-it-works'),
       api.get('/users?page=1&limit=1&role=pro'),
-    ]).then(([u, l, c, s, p, st, pg, tmpl, stepsData, prosResp]) => {
+    ]).then(([u, l, c, s, p, creditBundlesData, st, pg, tmpl, stepsData, prosResp]) => {
       const userList = u.users || u || [];
       const leadList = l.leads ?? (Array.isArray(l) ? l : []);
       setUsers(userList);
@@ -229,6 +232,7 @@ export default function AdminDashboard({ onShowLead }) {
       setCategories(Array.isArray(c) ? c : []);
       setServices(Array.isArray(s) ? s : []);
       setPlans(Array.isArray(p) ? p : []);
+      setCreditBundles(Array.isArray(creditBundlesData) ? creditBundlesData : []);
       setSettings(Array.isArray(st) ? st : []);
       setPages(Array.isArray(pg) ? pg : []);
       setTemplates(Array.isArray(tmpl) ? tmpl : []);
@@ -458,6 +462,43 @@ export default function AdminDashboard({ onShowLead }) {
     await api.del(`/subscriptions/plans/${id}`);
     setPlans(ps => ps.filter(p => p.id !== id));
     flash('Plan deleted');
+  };
+
+  // ── Credit bundles (top-up) CRUD — these are the packages shown in Pro Dashboard Credits tab ──
+  const saveCreditBundle = async () => {
+    if (!editCreditBundle) return;
+    setSaving(true);
+    const payload = {
+      label: editCreditBundle.label,
+      credits: editCreditBundle.credits,
+      price: editCreditBundle.price,
+      pricePerCredit: editCreditBundle.price_per_credit != null ? editCreditBundle.price_per_credit : (editCreditBundle.price / (editCreditBundle.credits || 1)),
+      stripePriceId: editCreditBundle.stripe_price_id || null,
+      isActive: editCreditBundle.is_active !== false,
+      sortOrder: editCreditBundle.sort_order ?? 0,
+    };
+    try {
+      if (editCreditBundle.id) {
+        await api.put(`/credits/admin/bundles/${editCreditBundle.id}`, payload);
+        setCreditBundles(cb => cb.map(b => b.id === editCreditBundle.id ? { ...b, ...editCreditBundle, ...payload } : b));
+      } else {
+        const r = await api.post('/credits/admin/bundles', payload);
+        setCreditBundles(cb => [...cb, { id: r.id, ...payload, label: payload.label, credits: payload.credits, price: payload.price, price_per_credit: payload.pricePerCredit, is_active: payload.isActive, sort_order: payload.sortOrder }]);
+      }
+      setEditCreditBundle(null);
+      flash('Credit bundle saved');
+      window.dispatchEvent(new CustomEvent('app:data-updated'));
+    } catch (e) {
+      flash(e?.message || e?.error || 'Failed to save bundle');
+    }
+    setSaving(false);
+  };
+  const deleteCreditBundle = async (id) => {
+    if (!confirm('Delete this credit bundle? Pros will no longer see it in the Credits tab.')) return;
+    await api.del(`/credits/admin/bundles/${id}`);
+    setCreditBundles(cb => cb.filter(b => b.id !== id));
+    setEditCreditBundle(null);
+    flash('Credit bundle deleted');
   };
 
   // ── Categories CRUD ──
@@ -980,6 +1021,46 @@ export default function AdminDashboard({ onShowLead }) {
                 </div>
               </Card>
             ))}
+          </div>
+
+          {/* Credit bundles (top-up) — same packages shown in Pro Dashboard → Credits tab; Stripe used for payment */}
+          <div style={{ marginTop: 32, paddingTop: 24, borderTop: `1px solid ${dm ? '#334155' : '#e2e8f0'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Credit bundles (top-up) ({creditBundles.length})</h3>
+              <Btn onClick={() => setEditCreditBundle({ label: '', credits: 10, price: 30, price_per_credit: 3, is_active: true, sort_order: creditBundles.length })}><FontAwesomeIcon icon={faPlus} />Add bundle</Btn>
+            </div>
+            <p style={{ fontSize: 12, color: ts, marginBottom: 14 }}>These are the one-time credit packages Pros see in Dashboard → Credits. Payment is via Stripe when configured.</p>
+            {editCreditBundle && (
+              <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
+                <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editCreditBundle.id ? 'Edit bundle' : 'New bundle'}</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }} className="admin-form-grid-2">
+                  <Input label="Label" value={editCreditBundle.label||''} onChange={v => setEditCreditBundle({...editCreditBundle, label: v})} dm={dm} placeholder="e.g. 10 Credits" />
+                  <Input label="Credits" value={editCreditBundle.credits??''} onChange={v => setEditCreditBundle({...editCreditBundle, credits: parseInt(v,10)||0})} dm={dm} type="number" />
+                  <Input label="Price ($)" value={editCreditBundle.price??''} onChange={v => setEditCreditBundle({...editCreditBundle, price: parseFloat(v)||0})} dm={dm} type="number" />
+                  <Input label="Price per credit ($)" value={editCreditBundle.price_per_credit??''} onChange={v => setEditCreditBundle({...editCreditBundle, price_per_credit: parseFloat(v)||0})} dm={dm} type="number" placeholder="Auto from price/credits" />
+                  <Input label="Sort order" value={editCreditBundle.sort_order??''} onChange={v => setEditCreditBundle({...editCreditBundle, sort_order: parseInt(v,10)||0})} dm={dm} type="number" />
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+                  <Btn onClick={saveCreditBundle} disabled={saving || !editCreditBundle.label}><FontAwesomeIcon icon={faFloppyDisk} />{saving ? 'Saving...' : 'Save'}</Btn>
+                  <Btn variant="ghost" onClick={() => setEditCreditBundle(null)}><FontAwesomeIcon icon={faXmark} />Cancel</Btn>
+                </div>
+              </Card>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+              {creditBundles.map(b => (
+                <Card key={b.id} dm={dm} style={{ padding: '16px 18px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: tp }}>{b.label}</div>
+                  <div style={{ fontSize: 12, color: ts }}>{b.credits} credits · ${Number(b.price).toFixed(2)}</div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                    <Btn small onClick={() => setEditCreditBundle({ ...b })}><FontAwesomeIcon icon={faPen} />Edit</Btn>
+                    <Btn small variant="danger" onClick={() => deleteCreditBundle(b.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
+                  </div>
+                </Card>
+              ))}
+            </div>
+            {creditBundles.length === 0 && !editCreditBundle && (
+              <p style={{ fontSize: 13, color: ts }}>No credit bundles. Add one above, or run <code style={{ background: dm ? '#334155' : '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>node migrate-credit-bundles.js</code> to seed defaults.</p>
+            )}
           </div>
         </>}
 

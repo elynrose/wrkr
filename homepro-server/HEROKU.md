@@ -54,6 +54,7 @@ mysql "YOUR_JAWSDB_URL" < homepro-server/schema.sql
 
 Set these in Heroku when you’re ready:
 
+- **SendGrid (email):** `SENDGRID_API_KEY` — if set, the app uses SendGrid SMTP for all outgoing email. In Admin → Settings → Email, enable "Email Enabled" and set **From Name** and **From Address** to a verified sender in your SendGrid account. No need to enter SMTP host/user/password in the UI.
 - **Stripe:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 - **Twilio (SMS):** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`
 - **Superadmin:** `SUPERADMIN_SECRET`

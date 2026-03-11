@@ -5,9 +5,57 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { addCredits, deductCredits, getBalance, getHistory, monthlyRefill, CREDIT_BUNDLES } = require('../services/credits');
 const { getStripe } = require('../services/stripe');
 
-// GET /api/credits/bundles — available purchase bundles (public)
-router.get('/bundles', (req, res) => {
-  res.json(CREDIT_BUNDLES);
+/** Normalize DB row to same shape as legacy CREDIT_BUNDLES (id, credits, price, pricePerCredit, label) */
+function rowToBundle(row) {
+  return {
+    id: String(row.id),
+    credits: row.credits,
+    price: Number(row.price),
+    pricePerCredit: Number(row.price_per_credit),
+    label: row.label || `${row.credits} Credits`,
+  };
+}
+
+/** Load tenant's credit bundles from DB; fallback to legacy CREDIT_BUNDLES if table missing or empty */
+async function getBundlesForTenant(tenantId) {
+  const tid = tenantId || 1;
+  try {
+    const [rows] = await db.query(
+      'SELECT id, label, credits, price, price_per_credit FROM credit_bundles WHERE tenant_id = ? AND is_active = TRUE ORDER BY sort_order ASC, id ASC',
+      [tid]
+    );
+    if (rows && rows.length > 0) return rows.map(rowToBundle);
+  } catch (err) {
+    // Table may not exist yet
+  }
+  return CREDIT_BUNDLES;
+}
+
+/** Resolve bundle by id: numeric = DB id (tenant-scoped), else legacy e.g. bundle_10 */
+async function resolveBundle(bundleId, tenantId) {
+  const tid = tenantId || 1;
+  const numId = parseInt(bundleId, 10);
+  if (!Number.isNaN(numId) && numId > 0) {
+    const [[row]] = await db.query(
+      'SELECT id, label, credits, price, price_per_credit FROM credit_bundles WHERE id = ? AND tenant_id = ? AND is_active = TRUE',
+      [numId, tid]
+    );
+    if (row) return rowToBundle(row);
+  }
+  const legacy = CREDIT_BUNDLES.find(b => b.id === bundleId || String(b.id) === String(bundleId));
+  return legacy || null;
+}
+
+// GET /api/credits/bundles — available purchase bundles (public, tenant-scoped; matches Admin-defined packages)
+router.get('/bundles', async (req, res) => {
+  try {
+    const tid = req.tenant?.id || 1;
+    const bundles = await getBundlesForTenant(tid);
+    res.json(bundles);
+  } catch (err) {
+    console.error('GET /credits/bundles error:', err);
+    res.json(CREDIT_BUNDLES);
+  }
 });
 
 // GET /api/credits/balance — pro's current balance + plan info
@@ -88,17 +136,18 @@ router.get('/history', authenticate, requireRole('pro'), async (req, res) => {
   }
 });
 
-// POST /api/credits/purchase — buy a credit bundle (creates Stripe checkout or adds directly for testing)
+// POST /api/credits/purchase — buy a credit bundle (Stripe checkout or dev fallback)
 router.post('/purchase', authenticate, requireRole('pro'), async (req, res) => {
   const { bundleId } = req.body;
-  const bundle = CREDIT_BUNDLES.find(b => b.id === bundleId);
+  const tid = req.tenant?.id || 1;
+  const bundle = await resolveBundle(bundleId, tid);
   if (!bundle) return res.status(400).json({ error: 'Invalid bundle' });
 
   try {
     const [[pro]] = await db.query('SELECT * FROM pros WHERE user_id = ?', [req.user.id]);
     if (!pro) return res.status(404).json({ error: 'Pro not found' });
 
-    const stripe = await getStripe(req.tenant?.id || 1);
+    const stripe = await getStripe(tid);
     if (stripe) {
       let customerId = pro.stripe_customer_id;
       if (!customerId) {
@@ -131,7 +180,7 @@ router.post('/purchase', authenticate, requireRole('pro'), async (req, res) => {
           pro_id: String(pro.id),
           user_id: String(req.user.id),
           credits: String(bundle.credits),
-          bundle_id: bundle.id,
+          bundle_id: String(bundle.id),
           type: 'credit_purchase',
         },
       });
@@ -169,6 +218,89 @@ router.post('/refill', authenticate, requireRole('pro'), async (req, res) => {
     if (!result) return res.json({ message: 'No refill needed (already refilled today or free plan)' });
     res.json({ message: `Refilled ${result.credits} credits`, balance: result.balance });
   } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── Admin routes: Credit bundles (top-up packages; match Pro Dashboard) ──
+
+// GET /api/credits/admin/bundles — admin: list tenant's credit bundles
+router.get('/admin/bundles', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const tid = req.tenant?.id || 1;
+    const [rows] = await db.query(
+      'SELECT id, tenant_id, label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order, created_at FROM credit_bundles WHERE tenant_id = ? ORDER BY sort_order ASC, id ASC',
+      [tid]
+    );
+    res.json(rows || []);
+  } catch (err) {
+    if (err.code === 'ER_NO_SUCH_TABLE') return res.json([]);
+    console.error('GET /credits/admin/bundles error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// POST /api/credits/admin/bundles — admin: create credit bundle
+router.post('/admin/bundles', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const tid = req.tenant?.id || 1;
+    const { label, credits, price, pricePerCredit, stripePriceId, isActive, sortOrder } = req.body;
+    if (!label || credits == null || price == null) {
+      return res.status(400).json({ error: 'label, credits, and price are required' });
+    }
+    const pricePerCreditVal = pricePerCredit != null ? Number(pricePerCredit) : Number(price) / Number(credits);
+    const [result] = await db.query(
+      `INSERT INTO credit_bundles (tenant_id, label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tid, label, parseInt(credits), Number(price), pricePerCreditVal, stripePriceId || null, isActive !== false, sortOrder != null ? parseInt(sortOrder) : 0]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Bundle created' });
+  } catch (err) {
+    if (err.code === 'ER_NO_SUCH_TABLE') {
+      return res.status(503).json({ error: 'Run migrate-credit-bundles.js to create credit_bundles table' });
+    }
+    console.error('POST /credits/admin/bundles error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
+// PUT /api/credits/admin/bundles/:id — admin: update credit bundle
+router.put('/admin/bundles/:id', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const tid = req.tenant?.id || 1;
+    const id = parseInt(req.params.id);
+    const { label, credits, price, pricePerCredit, stripePriceId, isActive, sortOrder } = req.body;
+    const updates = [];
+    const values = [];
+    if (label !== undefined) { updates.push('label = ?'); values.push(label); }
+    if (credits !== undefined) { updates.push('credits = ?'); values.push(parseInt(credits)); }
+    if (price !== undefined) { updates.push('price = ?'); values.push(Number(price)); }
+    if (pricePerCredit !== undefined) { updates.push('price_per_credit = ?'); values.push(Number(pricePerCredit)); }
+    if (stripePriceId !== undefined) { updates.push('stripe_price_id = ?'); values.push(stripePriceId || null); }
+    if (isActive !== undefined) { updates.push('is_active = ?'); values.push(!!isActive); }
+    if (sortOrder !== undefined) { updates.push('sort_order = ?'); values.push(parseInt(sortOrder)); }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    values.push(id, tid);
+    await db.query(
+      `UPDATE credit_bundles SET ${updates.join(', ')} WHERE id = ? AND tenant_id = ?`,
+      values
+    );
+    res.json({ message: 'Bundle updated' });
+  } catch (err) {
+    console.error('PUT /credits/admin/bundles error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
+// DELETE /api/credits/admin/bundles/:id — admin: delete credit bundle
+router.delete('/admin/bundles/:id', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const tid = req.tenant?.id || 1;
+    const id = parseInt(req.params.id);
+    await db.query('DELETE FROM credit_bundles WHERE id = ? AND tenant_id = ?', [id, tid]);
+    res.json({ message: 'Bundle deleted' });
+  } catch (err) {
+    console.error('DELETE /credits/admin/bundles error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

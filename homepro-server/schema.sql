@@ -282,6 +282,21 @@ CREATE TABLE IF NOT EXISTS subscription_plans (
   UNIQUE KEY uq_plan_slug_tenant (slug, tenant_id)
 );
 
+-- Credit top-up bundles (per tenant; shown in Pro Dashboard, managed in Admin)
+CREATE TABLE IF NOT EXISTS credit_bundles (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id         INT           NOT NULL DEFAULT 1,
+  label             VARCHAR(80)  NOT NULL,
+  credits           INT           NOT NULL,
+  price             DECIMAL(10,2) NOT NULL,
+  price_per_credit  DECIMAL(10,2) NOT NULL,
+  stripe_price_id   VARCHAR(100),
+  is_active         BOOLEAN       DEFAULT TRUE,
+  sort_order        INT           DEFAULT 0,
+  created_at        TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_tenant_active (tenant_id, is_active)
+);
+
 -- ═══════════════════════════════════════════════════════════
 -- PAYMENTS & INVOICES
 -- ═══════════════════════════════════════════════════════════

@@ -144,7 +144,7 @@ function TenantHeader({ siteName, primary, onNavigate, siteUrl, slug }) {
   const linkClass = 'block w-full text-left py-3 px-4 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors';
   return (
     <header
-      className="sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3 sm:px-6 lg:px-6"
+      className="app-header tenant-header sticky top-0 z-50 bg-white border-b border-gray-200 px-4 py-3 sm:px-6 lg:px-6"
       style={{ borderBottomColor: '#e5e7eb' }}
     >
       <div className="flex items-center justify-between">
@@ -158,8 +158,8 @@ function TenantHeader({ siteName, primary, onNavigate, siteUrl, slug }) {
           </div>
           <span className="font-bold text-lg text-gray-900 truncate">{siteName}</span>
         </div>
-        {/* Desktop nav — hidden on mobile/tablet */}
-        <div className="hidden lg:flex items-center gap-3">
+        {/* Desktop nav — hidden on mobile (iPhone, Pixel, Samsung, etc.) */}
+        <div className="desktop-nav hidden lg:flex items-center gap-3">
           {slug && (
             <a href={`#t/${slug}/for-pros`} onClick={(e) => { e.preventDefault(); window.location.hash = `#t/${slug}/for-pros`; window.scrollTo(0, 0); }}
               style={{ fontSize: 14, color: primary, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -177,19 +177,19 @@ function TenantHeader({ siteName, primary, onNavigate, siteUrl, slug }) {
             ← Back
           </button>
         </div>
-        {/* Hamburger — mobile/tablet only */}
+        {/* Hamburger — mobile (iPhone, Pixel, Samsung, etc.) and tablet */}
         <button
           type="button"
           onClick={() => setMenuOpen(!menuOpen)}
-          className="lg:hidden p-2 rounded-lg text-gray-700 hover:bg-gray-100"
+          className="hamburger-btn lg:hidden p-2 rounded-lg text-gray-700 hover:bg-gray-100"
           aria-label={menuOpen ? 'Close menu' : 'Open menu'}
         >
           <FontAwesomeIcon icon={menuOpen ? faXmark : faBars} style={{ width: 20, height: 20 }} />
         </button>
       </div>
-      {/* Mobile/tablet dropdown menu */}
+      {/* Mobile dropdown menu (phones and small tablets) */}
       {menuOpen && (
-        <div className="lg:hidden mt-2 pt-2 border-t border-gray-200 flex flex-col gap-1">
+        <div className="mobile-menu lg:hidden mt-2 pt-2 border-t border-gray-200 flex flex-col gap-1">
           {slug && (
             <a href={`#t/${slug}/for-pros`} onClick={(e) => { e.preventDefault(); window.location.hash = `#t/${slug}/for-pros`; window.scrollTo(0, 0); setMenuOpen(false); }}
               className={linkClass} style={{ color: primary }}>
