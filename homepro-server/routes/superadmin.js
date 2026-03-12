@@ -180,10 +180,17 @@ router.post('/tenants', async (req, res) => {
     // Create admin user for this tenant
     let ownerUserId = null;
     if (adminEmail && adminPassword) {
+      const emailNorm = (adminEmail || '').trim().toLowerCase();
+      const [emailExists] = await conn.query('SELECT id FROM users WHERE LOWER(email) = ?', [emailNorm]);
+      if (emailExists.length) {
+        await conn.rollback();
+        conn.release();
+        return res.status(409).json({ error: 'An account with this email already exists. Each email can only be registered once.' });
+      }
       const hash = await bcrypt.hash(adminPassword, 10);
       const [uRes] = await conn.query(
         'INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name) VALUES (?,?,?,?,?,?)',
-        [tenantId, adminEmail, hash, 'admin', adminFirstName || 'Admin', adminLastName || name]
+        [tenantId, emailNorm, hash, 'admin', adminFirstName || 'Admin', adminLastName || name]
       );
       ownerUserId = uRes.insertId;
       await conn.query('UPDATE tenants SET owner_user_id = ? WHERE id = ?', [ownerUserId, tenantId]);

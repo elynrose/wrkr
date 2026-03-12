@@ -167,17 +167,18 @@ router.post('/', authenticate, requireRole('admin'), async (req, res) => {
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const validRoles = ['consumer', 'pro', 'admin'];
   const userRole = validRoles.includes(role) ? role : 'consumer';
+  const emailNorm = (email || '').trim().toLowerCase();
   try {
-    const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND tenant_id = ?', [email, tid]);
-    if (existing.length) return res.status(409).json({ error: 'An account with this email already exists' });
+    const [existing] = await db.query('SELECT id FROM users WHERE LOWER(email) = ?', [emailNorm]);
+    if (existing.length) return res.status(409).json({ error: 'An account with this email already exists. Each email can only be registered once.' });
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tid, email, hash, userRole, firstName || null, lastName || null, phone || null]
+      [tid, emailNorm, hash, userRole, firstName || null, lastName || null, phone || null]
     );
-    audit({ tenantId: tid, userId: req.user.id, action: 'user_create', entityType: 'user', entityId: result.insertId, newValues: { email, role: userRole }, ipAddress: req.ip }).catch(() => {});
-    res.status(201).json({ id: result.insertId, email, role: userRole, message: 'User created' });
+    audit({ tenantId: tid, userId: req.user.id, action: 'user_create', entityType: 'user', entityId: result.insertId, newValues: { email: emailNorm, role: userRole }, ipAddress: req.ip }).catch(() => {});
+    res.status(201).json({ id: result.insertId, email: emailNorm, role: userRole, message: 'User created' });
   } catch (err) {
     console.error('Create user error:', err);
     res.status(500).json({ error: 'Server error' });
@@ -193,9 +194,14 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
     return res.status(400).json({ error: 'You cannot change your own role' });
   }
   try {
+    if (email !== undefined) {
+      const emailNorm = (email || '').trim().toLowerCase();
+      const [taken] = await db.query('SELECT id FROM users WHERE LOWER(email) = ? AND id != ?', [emailNorm, id]);
+      if (taken.length) return res.status(409).json({ error: 'An account with this email already exists. Each email can only be used once.' });
+    }
     const updates = [];
     const params = [];
-    if (email !== undefined) { updates.push('email = ?'); params.push(email); }
+    if (email !== undefined) { const emailNorm = (email || '').trim().toLowerCase(); updates.push('email = ?'); params.push(emailNorm); }
     if (role !== undefined && ['consumer', 'pro', 'admin'].includes(role)) { updates.push('role = ?'); params.push(role); }
     if (firstName !== undefined) { updates.push('first_name = ?'); params.push(firstName || null); }
     if (lastName !== undefined) { updates.push('last_name = ?'); params.push(lastName || null); }

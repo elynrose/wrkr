@@ -12,6 +12,12 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
   const { businessName, ownerName, email, phone, password, services, zips, cities, plan, planSlug, yearsInBusiness, licenseNumber, tenant_slug } = req.body;
   if (!businessName || !email) return res.status(400).json({ error: 'Business name and email are required' });
 
+  const emailNorm = (email || '').trim().toLowerCase();
+  const [existingUser] = await db.query('SELECT id FROM users WHERE LOWER(email) = ?', [emailNorm]);
+  if (existingUser.length) {
+    return res.status(409).json({ error: 'An account with this email already exists. Use a different email or sign in.' });
+  }
+
   let tenantId = req.tenant?.id || 1;
   if (tenant_slug) {
     const [tenantRows] = await db.query('SELECT id FROM tenants WHERE slug = ? AND status = ? LIMIT 1', [tenant_slug, 'active']);
@@ -43,7 +49,7 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
     const names = (ownerName || '').split(' ');
     const [userResult] = await conn.query(
       'INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone) VALUES (?,?,?,?,?,?,?)',
-      [tenantId, email, hash, 'pro', names[0] || null, names.slice(1).join(' ') || null, phone]
+      [tenantId, emailNorm, hash, 'pro', names[0] || null, names.slice(1).join(' ') || null, phone]
     );
     const userId = userResult.insertId;
 
@@ -103,7 +109,7 @@ router.post('/', ...spamProtect({ keyPrefix: 'pro_signup', rateLimitMax: 8, minT
       ).catch(err => console.error('[EMAIL] Pro welcome email failed:', err.message));
     });
 
-    const token = generateToken({ id: userId, email, role: 'pro' });
+    const token = generateToken({ id: userId, email: emailNorm, role: 'pro' });
     res.status(201).json({ id: proId, userId, token, message: 'Pro account created' });
   } catch (err) {
     await conn.rollback();

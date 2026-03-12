@@ -25,35 +25,39 @@ router.post('/register', ...spamProtect({ keyPrefix: 'register', rateLimitMax: 1
   const userRole = validRoles.includes(role) ? role : 'consumer';
 
   const tenantId = req.tenant?.id || 1;
+  const emailNorm = (email || '').trim().toLowerCase();
+  if (!emailNorm) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
   try {
-    const [existing] = await db.query('SELECT id FROM users WHERE email = ? AND tenant_id = ?', [email, tenantId]);
+    const [existing] = await db.query('SELECT id FROM users WHERE LOWER(email) = ?', [emailNorm]);
     if (existing.length) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
+      return res.status(409).json({ error: 'An account with this email already exists. Use a different email or sign in.' });
     }
 
     const hash = await bcrypt.hash(password, 10);
     const [result] = await db.query(
       `INSERT INTO users (tenant_id, email, password_hash, role, first_name, last_name, phone, email_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)`,
-      [tenantId, email, hash, userRole, firstName || null, lastName || null, phone || null]
+      [tenantId, emailNorm, hash, userRole, firstName || null, lastName || null, phone || null]
     );
 
-    const user = { id: result.insertId, email, role: userRole, tenant_id: tenantId };
+    const user = { id: result.insertId, email: emailNorm, role: userRole, tenant_id: tenantId };
     const token = generateToken(user);
 
     setImmediate(async () => {
-      try { await sendWelcomeEmail({ email, firstName, role: userRole }, tenantId); } catch (err) { console.error('[EMAIL] Welcome failed:', err.message); }
+      try { await sendWelcomeEmail({ email: emailNorm, firstName, role: userRole }, tenantId); } catch (err) { console.error('[EMAIL] Welcome failed:', err.message); }
       try {
         const verifyToken = crypto.randomBytes(32).toString('hex');
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
         await db.query('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [result.insertId, verifyToken, expiresAt]);
-        await sendEmailVerification({ email, firstName }, `${FRONTEND_URL()}/#verify/${verifyToken}`, tenantId);
+        await sendEmailVerification({ email: emailNorm, firstName }, `${FRONTEND_URL()}/#verify/${verifyToken}`, tenantId);
       } catch (err) { console.error('[EMAIL] Verification failed:', err.message); }
     });
 
     res.status(201).json({
       token,
-      user: { id: user.id, email, role: userRole, firstName, lastName },
+      user: { id: user.id, email: emailNorm, role: userRole, firstName, lastName },
     });
   } catch (err) {
     console.error('Register error:', err);
@@ -70,16 +74,17 @@ router.post('/login', rateLimit({ keyPrefix: 'login', max: 15, windowMs: 15 * 60
   }
 
   const tenantId = req.tenant?.id || 1;
+  const emailNorm = (email || '').trim().toLowerCase();
   const host = (req.hostname || '').toLowerCase();
   const isLocalhost = !host || host === 'localhost' || host === '127.0.0.1';
   try {
     let user = null;
-    const [rows] = await db.query('SELECT * FROM users WHERE email = ? AND tenant_id = ?', [email, tenantId]);
+    const [rows] = await db.query('SELECT * FROM users WHERE LOWER(email) = ? AND tenant_id = ?', [emailNorm, tenantId]);
     if (rows.length) {
       user = rows[0];
     } else if (isLocalhost) {
       // Local dev fallback: if email exists in exactly one tenant, allow login there.
-      const [anyTenantRows] = await db.query('SELECT * FROM users WHERE email = ? LIMIT 2', [email]);
+      const [anyTenantRows] = await db.query('SELECT * FROM users WHERE LOWER(email) = ? LIMIT 2', [emailNorm]);
       if (anyTenantRows.length === 1) {
         user = anyTenantRows[0];
       } else if (anyTenantRows.length > 1) {
@@ -163,7 +168,8 @@ router.post('/forgot-password', ...spamProtect({ keyPrefix: 'forgot', rateLimitM
   }
   const tenantId = req.tenant?.id || 1;
   try {
-    const [rows] = await db.query('SELECT id, email, first_name FROM users WHERE email = ? AND tenant_id = ? AND is_active = TRUE', [email.trim().toLowerCase(), tenantId]);
+    const emailNorm = email.trim().toLowerCase();
+    const [rows] = await db.query('SELECT id, email, first_name FROM users WHERE LOWER(email) = ? AND tenant_id = ? AND is_active = TRUE', [emailNorm, tenantId]);
     // Always return success to prevent email enumeration
     if (rows.length === 0) {
       return res.json({ message: 'If an account exists with that email, you will receive a password reset link.' });
