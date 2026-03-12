@@ -5,15 +5,15 @@ import { faCommentDots, faXmark, faPaperPlane, faSpinner } from '@fortawesome/fr
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 /**
- * Floating chat widget for tenant homepage. Similar to AISetupChatWidget:
- * conversation with AI that can suggest a lead; when suggestedLead is returned,
- * user can submit the request through the existing lead flow.
+ * Floating chat widget for tenant homepage. Conversation with AI that can suggest a lead;
+ * when user clicks Submit request, the lead is saved directly (no modal).
  */
-export default function TenantChatWidget({ slug, siteName, label = 'Chat with us', primary = '#2563eb', onOpenRequestModal }) {
+export default function TenantChatWidget({ slug, siteName, label = 'Chat with us', primary = '#2563eb' }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [submitLoading, setSubmitLoading] = useState(false);
   const [suggestedLead, setSuggestedLead] = useState(null);
 
   const sendMessage = async () => {
@@ -44,20 +44,36 @@ export default function TenantChatWidget({ slug, siteName, label = 'Chat with us
     }
   };
 
-  const handleSubmitLead = () => {
-    if (suggestedLead && onOpenRequestModal) {
-      onOpenRequestModal({
-        service: suggestedLead.service || '',
-        zip: suggestedLead.zip || '',
-        city: suggestedLead.city || '',
-        description: suggestedLead.description || '',
-        urgency: suggestedLead.urgency || '',
-        name: suggestedLead.name || '',
-        email: suggestedLead.email || '',
-        phone: suggestedLead.phone || '',
+  const handleSubmitLead = async () => {
+    if (!suggestedLead || !slug) return;
+    if (!suggestedLead.email || !suggestedLead.service) {
+      setMessages((m) => [...m, { role: 'assistant', content: 'We need your email and service type to submit. Please share them in the chat and we\'ll try again.' }]);
+      return;
+    }
+    setSubmitLoading(true);
+    try {
+      const res = await fetch(`${API}/tenant/${slug}/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          service: suggestedLead.service || '',
+          zip: suggestedLead.zip || '',
+          city: suggestedLead.city || '',
+          description: suggestedLead.description || '',
+          urgency: suggestedLead.urgency || '',
+          name: suggestedLead.name || '',
+          email: suggestedLead.email || '',
+          phone: suggestedLead.phone || '',
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
+      setMessages((m) => [...m, { role: 'assistant', content: "Your request has been submitted! We'll match you with qualified pros and be in touch soon." }]);
       setSuggestedLead(null);
-      setOpen(false);
+    } catch (err) {
+      setMessages((m) => [...m, { role: 'assistant', content: err.message || 'Sorry, we couldn\'t submit your request. Please try the request form on the page instead.' }]);
+    } finally {
+      setSubmitLoading(false);
     }
   };
 
@@ -142,8 +158,8 @@ export default function TenantChatWidget({ slug, siteName, label = 'Chat with us
                   {suggestedLead.service} · {suggestedLead.zip} · {suggestedLead.email}
                 </p>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button type="button" onClick={handleSubmitLead} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, background: primary, color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}>
-                    Submit request
+                  <button type="button" onClick={handleSubmitLead} disabled={submitLoading} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, background: primary, color: '#fff', border: 'none', borderRadius: 8, cursor: submitLoading ? 'wait' : 'pointer', opacity: submitLoading ? 0.8 : 1 }}>
+                    {submitLoading ? <><FontAwesomeIcon icon={faSpinner} spin style={{ marginRight: 6 }} />Submitting…</> : 'Submit request'}
                   </button>
                   <button type="button" onClick={() => setSuggestedLead(null)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 500, background: 'transparent', color: textSecondary, border: `1px solid ${border}`, borderRadius: 8, cursor: 'pointer' }}>
                     Cancel

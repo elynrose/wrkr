@@ -213,7 +213,7 @@ export default function TenantForProsPage({ slug, onNavigate, onProSignup }) {
             <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12, color: tp }}>Simple, transparent pricing</h2>
             <p style={{ color: ts, maxWidth: 440, margin: '0 auto' }}>Start free and upgrade as you grow. No hidden fees.</p>
           </div>
-          <div className="tenant-for-pros-pricing-grid" style={{ display: 'grid', gap: 20, alignItems: 'start', justifyContent: 'center' }}>
+          <div className="tenant-for-pros-pricing-grid">
             {plans && plans.length > 0 ? plans.map(p => {
               let features = [];
               try { features = typeof p.features === 'string' ? JSON.parse(p.features) : (p.features || []); } catch {}
@@ -246,7 +246,7 @@ export default function TenantForProsPage({ slug, onNavigate, onProSignup }) {
                 </div>
               );
             }) : (
-              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: ts }}>
+              <div style={{ width: '100%', flexBasis: '100%', textAlign: 'center', padding: 40, color: ts }}>
                 <p>No plans configured yet. Contact {siteName} to get started.</p>
                 <button onClick={openProModal} style={{
                   marginTop: 16, padding: '12px 24px', fontSize: 14, fontWeight: 700, borderRadius: 'var(--border-radius)',

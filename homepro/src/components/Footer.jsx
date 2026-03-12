@@ -110,7 +110,9 @@ export default function Footer({ onNavigate }) {
               Legal
             </h4>
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {legalPages.map(p => (
+              <li style={{ marginBottom: 10 }}><button onClick={() => goPage('terms')} style={linkStyle}>Terms of Service</button></li>
+              <li style={{ marginBottom: 10 }}><button onClick={() => goPage('copyright')} style={linkStyle}>Copyright</button></li>
+              {legalPages.filter(p => p.slug !== 'terms' && p.slug !== 'copyright').map(p => (
                 <li key={p.slug} style={{ marginBottom: 10 }}>
                   <button onClick={() => goPage(p.slug)} style={linkStyle}>{p.title}</button>
                 </li>

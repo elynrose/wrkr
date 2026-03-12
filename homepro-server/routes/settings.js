@@ -334,23 +334,26 @@ async function applyGeneratedContent(conn, tid, p) {
       [tid, pl.name || 'Plan', pl.slug || 'plan-' + (i + 1), pl.price_monthly || 0, pl.price_yearly || 0, pl.lead_credits || 0, pl.max_service_areas || 5, pl.max_services || 5, features, !!pl.is_popular, pl.sort_order != null ? pl.sort_order : i + 1]
     );
   }
-  await conn.query('DELETE FROM services WHERE tenant_id = ?', [tid]);
-  await conn.query('DELETE FROM categories WHERE tenant_id = ?', [tid]);
-  const catSlugToId = {};
-  for (let i = 0; i < (p.categories || []).length; i++) {
-    const c = p.categories[i];
-    const [r] = await conn.query(
-      `INSERT INTO categories (tenant_id, name, slug, icon_class, description, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
-      [tid, c.name || '', c.slug || 'cat-' + i, c.icon_class || 'faWrench', c.description || '', c.sort_order != null ? c.sort_order : i]
-    );
-    catSlugToId[c.slug || ('cat-' + i)] = r.insertId;
-  }
-  for (const svc of p.services || []) {
-    const catId = svc.category_slug ? (catSlugToId[svc.category_slug] || null) : null;
-    await conn.query(
-      `INSERT INTO services (tenant_id, category_id, name, slug, icon_class, min_price, price_unit) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tid, catId, svc.name || '', svc.slug || svc.name?.toLowerCase().replace(/\s+/g, '-') || 'service', svc.icon_class || 'faWrench', svc.min_price || null, svc.price_unit || 'per job']
-    );
+  // Default tenant (id=1): do not wipe or replace categories/services
+  if (tid !== 1) {
+    await conn.query('DELETE FROM services WHERE tenant_id = ?', [tid]);
+    await conn.query('DELETE FROM categories WHERE tenant_id = ?', [tid]);
+    const catSlugToId = {};
+    for (let i = 0; i < (p.categories || []).length; i++) {
+      const c = p.categories[i];
+      const [r] = await conn.query(
+        `INSERT INTO categories (tenant_id, name, slug, icon_class, description, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
+        [tid, c.name || '', c.slug || 'cat-' + i, c.icon_class || 'faWrench', c.description || '', c.sort_order != null ? c.sort_order : i]
+      );
+      catSlugToId[c.slug || ('cat-' + i)] = r.insertId;
+    }
+    for (const svc of p.services || []) {
+      const catId = svc.category_slug ? (catSlugToId[svc.category_slug] || null) : null;
+      await conn.query(
+        `INSERT INTO services (tenant_id, category_id, name, slug, icon_class, min_price, price_unit) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [tid, catId, svc.name || '', svc.slug || svc.name?.toLowerCase().replace(/\s+/g, '-') || 'service', svc.icon_class || 'faWrench', svc.min_price || null, svc.price_unit || 'per job']
+      );
+    }
   }
 }
 

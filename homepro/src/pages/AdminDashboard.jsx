@@ -7,7 +7,7 @@ import {
   faGear, faCubes, faTag, faPlus, faPen, faTrash, faXmark, faPhone,
   faFloppyDisk, faHome, faMagnifyingGlass, faPalette, faFileLines, faEye,
   faBell, faEnvelopeOpenText, faCommentSms, faChartLine, faToggleOn as faToggleOnSolid, faListOl,
-  faChevronLeft, faChevronRight, faBolt, faCommentDots,
+  faChevronLeft, faChevronRight, faBolt, faCommentDots, faCopy,
 } from '@fortawesome/free-solid-svg-icons';
 import { useTheme, themes as themeMap, fontOptions as fontOptionsMap, borderRadiusOptions as borderRadiusOpts } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -204,6 +204,7 @@ export default function AdminDashboard({ onShowLead }) {
   const [newTenant, setNewTenant] = useState(null);
   const [showDomainHelp, setShowDomainHelp] = useState(false);
   const [tenantSlug, setTenantSlug] = useState('default');
+  const [tenantId, setTenantId] = useState(null);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000); };
   const isSuperAdmin = user?.role === 'superadmin';
@@ -253,10 +254,13 @@ export default function AdminDashboard({ onShowLead }) {
     }
   }, []);
 
-  // Tenant slug for Preview website link (opens current tenant's public home)
+  // Tenant slug and id (for Preview link and default-tenant delete restrictions)
   useEffect(() => {
     api.get('/tenant/config')
-      .then(d => setTenantSlug(d.tenant?.slug || 'default'))
+      .then(d => {
+        setTenantSlug(d.tenant?.slug || 'default');
+        setTenantId(d.tenant?.id ?? null);
+      })
       .catch(() => {});
   }, []);
 
@@ -361,6 +365,19 @@ export default function AdminDashboard({ onShowLead }) {
     setSettings(ss => [...ss, ...defaults.filter(d => missing.includes(d.setting_key))]);
   }, [tab, settingsSubTab]);
 
+  // Ensure cookie notice (legal) settings exist in state when Legal tab is selected
+  useEffect(() => {
+    if (tab !== 'settings' || settingsSubTab !== 'legal') return;
+    const legalKeys = ['cookie_notice_enabled', 'cookie_notice_message'];
+    const missing = legalKeys.filter(k => !settings.some(s => s.setting_key === k));
+    if (missing.length === 0) return;
+    const defaults = [
+      { setting_key: 'cookie_notice_enabled', setting_value: 'true', setting_type: 'boolean', setting_group: 'legal', label: 'Show cookie notice bar' },
+      { setting_key: 'cookie_notice_message', setting_value: '', setting_type: 'string', setting_group: 'legal', label: 'Cookie notice message (leave blank for default)' },
+    ];
+    setSettings(ss => [...ss, ...defaults.filter(d => missing.includes(d.setting_key))]);
+  }, [tab, settingsSubTab]);
+
   const loadSteps = () => {
     setStepsLoading(true);
     api.get('/admin/how-it-works')
@@ -415,7 +432,7 @@ export default function AdminDashboard({ onShowLead }) {
   const saveSettings = async (group) => {
     setSaving(true);
     const groupSettings = settings.filter(s => s.setting_group === group);
-    await api.put('/settings', { settings: groupSettings.map(s => ({ key: s.setting_key, value: s.setting_value, type: s.setting_type, group: s.setting_group, label: s.label })) });
+    await api.put('/settings', { settings: groupSettings.map(s => ({ key: s.setting_key, value: s.setting_value, type: s.setting_type, group: s.setting_group, label: s.label, ...(s.setting_group === 'legal' ? { isPublic: true } : {}) })) });
     if (group === 'appearance') {
       const themeVal = groupSettings.find(s => s.setting_key === 'default_theme')?.setting_value || 'blue';
       const darkVal = groupSettings.find(s => s.setting_key === 'default_dark_mode')?.setting_value;
@@ -516,10 +533,14 @@ export default function AdminDashboard({ onShowLead }) {
   };
   const deleteCat = async (id) => {
     if (!confirm('Delete this category?')) return;
-    const r = await api.del(`/categories/${id}`);
-    if (r.error) { flash(r.error); return; }
-    setCategories(cs => cs.filter(c => c.id !== id));
-    flash('Category deleted');
+    try {
+      const r = await api.del(`/categories/${id}`);
+      if (r?.error) { flash(r.error); return; }
+      setCategories(cs => cs.filter(c => c.id !== id));
+      flash('Category deleted');
+    } catch (e) {
+      flash(e?.message || 'Could not delete category');
+    }
   };
 
   // ── Services CRUD ──
@@ -551,9 +572,47 @@ export default function AdminDashboard({ onShowLead }) {
   };
   const deleteSvc = async (id) => {
     if (!confirm('Delete this service?')) return;
-    await api.del(`/services/${id}`);
-    setServices(ss => ss.filter(s => s.id !== id));
-    flash('Service deleted');
+    try {
+      await api.del(`/services/${id}`);
+      setServices(ss => ss.filter(s => s.id !== id));
+      flash('Service deleted');
+    } catch (e) {
+      flash(e?.message || 'Could not delete service');
+    }
+  };
+
+  const [copying, setCopying] = useState('');
+  const copyCategoriesFromDefault = async () => {
+    if (tenantId === 1 || copying) return;
+    setCopying('categories');
+    try {
+      const r = await api.post('/categories/copy-from-default', {});
+      if (r?.error) { flash(r.error); return; }
+      flash(r?.message || 'Categories copied from default.');
+      const c = await api.get('/categories/admin-list');
+      setCategories(Array.isArray(c) ? c : []);
+      window.dispatchEvent(new CustomEvent('app:data-updated'));
+    } catch (e) {
+      flash(e?.message || 'Copy failed');
+    } finally {
+      setCopying('');
+    }
+  };
+  const copyServicesFromDefault = async () => {
+    if (tenantId === 1 || copying) return;
+    setCopying('services');
+    try {
+      const r = await api.post('/services/copy-from-default', {});
+      if (r?.error) { flash(r.error); return; }
+      flash(r?.message || 'Services copied from default.');
+      const s = await api.get('/services/admin-list?all=true');
+      setServices(Array.isArray(s) ? s : []);
+      window.dispatchEvent(new CustomEvent('app:data-updated'));
+    } catch (e) {
+      flash(e?.message || 'Copy failed');
+    } finally {
+      setCopying('');
+    }
   };
 
   // ── Homepage steps (how it works) ──
@@ -584,7 +643,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'users',       label: 'Users',       icon: faUsers },
     { key: 'leads',       label: 'Leads',       icon: faClipboardList },
     { key: 'packages',    label: 'Packages',    icon: faCubes },
-    ...(isSuperAdmin ? [{ key: 'categories',  label: 'Categories',  icon: faTag }] : []),
+    { key: 'categories',  label: 'Categories',  icon: faTag },
     { key: 'services',    label: 'Services',    icon: faLayerGroup },
     { key: 'reviews',     label: 'Reviews',     icon: faStar },
     { key: 'pages',       label: 'Pages',       icon: faFileLines },
@@ -612,6 +671,7 @@ export default function AdminDashboard({ onShowLead }) {
     { key: 'homepage',   label: 'Homepage',   icon: faHome },
     { key: 'sections',   label: 'Content sections', icon: faListOl },
     { key: 'chat',       label: 'Tenant homepage chat', icon: faCommentDots },
+    { key: 'legal',      label: 'Cookie notice & Legal', icon: faFileLines },
     { key: 'seo',        label: 'SEO',        icon: faMagnifyingGlass },
     { key: 'analytics',  label: 'Google Analytics', icon: faChartLine },
     { key: 'email',      label: 'Email',      icon: faEnvelope },
@@ -1083,10 +1143,17 @@ export default function AdminDashboard({ onShowLead }) {
         </>}
 
         {/* ══════════ CATEGORIES ══════════ */}
-        {tab === 'categories' && isSuperAdmin && <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        {tab === 'categories' && <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Categories ({categories.length})</h3>
-            <Btn onClick={() => setEditCat({ name: '', slug: '', iconClass: '', description: '', tags: '', sortOrder: categories.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Category</Btn>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {tenantId !== 1 && (
+                <Btn variant="ghost" onClick={copyCategoriesFromDefault} disabled={copying} title="Copy default account's categories into yours">
+                  {copying === 'categories' ? <><FontAwesomeIcon icon={faSpinner} spin /> Copying…</> : <><FontAwesomeIcon icon={faCopy} /> Copy from default</>}
+                </Btn>
+              )}
+              <Btn onClick={() => setEditCat({ name: '', slug: '', iconClass: '', description: '', tags: '', sortOrder: categories.length + 1 })}><FontAwesomeIcon icon={faPlus} />Add Category</Btn>
+            </div>
           </div>
           {editCat && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editCat.id ? 'Edit Category' : 'New Category'}</h4>
@@ -1115,7 +1182,7 @@ export default function AdminDashboard({ onShowLead }) {
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <Btn small onClick={() => setEditCat({ ...c, iconClass: c.icon_class, sortOrder: c.sort_order, tags: c.tags || '' })}><FontAwesomeIcon icon={faPen} /></Btn>
-                    <Btn small variant="danger" onClick={() => deleteCat(c.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
+                    {tenantId !== 1 && <Btn small variant="danger" onClick={() => deleteCat(c.id)}><FontAwesomeIcon icon={faTrash} /></Btn>}
                   </div>
                 </div>
                 {c.services?.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -1128,9 +1195,16 @@ export default function AdminDashboard({ onShowLead }) {
 
         {/* ══════════ SERVICES ══════════ */}
         {tab === 'services' && <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: tp }}>Services ({services.length})</h3>
-            <Btn onClick={() => setEditSvc({ categoryId: categories[0]?.id, name: '', slug: '', iconClass: '', cardImageUrl: '', minPrice: '', priceUnit: 'per job' })}><FontAwesomeIcon icon={faPlus} />Add Service</Btn>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {tenantId !== 1 && (
+                <Btn variant="ghost" onClick={copyServicesFromDefault} disabled={copying} title="Copy default account's services into yours (copy categories first to match)">
+                  {copying === 'services' ? <><FontAwesomeIcon icon={faSpinner} spin /> Copying…</> : <><FontAwesomeIcon icon={faCopy} /> Copy from default</>}
+                </Btn>
+              )}
+              <Btn onClick={() => setEditSvc({ categoryId: categories[0]?.id, name: '', slug: '', iconClass: '', cardImageUrl: '', minPrice: '', priceUnit: 'per job' })}><FontAwesomeIcon icon={faPlus} />Add Service</Btn>
+            </div>
           </div>
           {editSvc && <Card dm={dm} style={{ padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 700, color: tp, marginBottom: 12 }}>{editSvc.id ? 'Edit Service' : 'New Service'}</h4>
@@ -1169,7 +1243,7 @@ export default function AdminDashboard({ onShowLead }) {
                 <Td dm={dm}>
                   <div style={{ display: 'flex', gap: 4 }}>
                     <Btn small onClick={() => setEditSvc({ ...s, categoryId: s.category_id, iconClass: s.icon_class, minPrice: s.min_price, priceUnit: s.price_unit })}><FontAwesomeIcon icon={faPen} /></Btn>
-                    <Btn small variant="danger" onClick={() => deleteSvc(s.id)}><FontAwesomeIcon icon={faTrash} /></Btn>
+                    {tenantId !== 1 && <Btn small variant="danger" onClick={() => deleteSvc(s.id)}><FontAwesomeIcon icon={faTrash} /></Btn>}
                   </div>
                 </Td>
               </tr>
@@ -1313,6 +1387,9 @@ export default function AdminDashboard({ onShowLead }) {
             </div>
           </Card>}
 
+          <p style={{ fontSize: 12, color: ts, marginBottom: 12 }}>
+            Terms of Service and Copyright are linked from the site footer. Create pages with slugs <code style={{ background: dm ? '#334155' : '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>terms</code> and <code style={{ background: dm ? '#334155' : '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>copyright</code> (Legal group) to edit them.
+          </p>
           <Card dm={dm}><Table headers={['','Title','Slug','Group','Status','Updated','Actions']} dm={dm}>
             {pages.slice((pagesPage - 1) * pagesLimit, pagesPage * pagesLimit).map(p => (
               <tr key={p.id} style={{ borderBottom: `1px solid ${border}` }}>
@@ -1564,7 +1641,7 @@ export default function AdminDashboard({ onShowLead }) {
               } catch { return false; }
             })();
             const visibleGroups = settingGroups.filter(g => {
-              if (g.key === 'chat') return true;
+              if (g.key === 'chat' || g.key === 'legal') return true;
               if (g.key === 'sections') return settings.some(s => s.setting_key === 'homepage_sections');
               const groupSettings = settings.filter(s => s.setting_group === g.key);
               const displaySettings = g.key === 'homepage'

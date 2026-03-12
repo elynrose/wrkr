@@ -32,14 +32,18 @@ html { scroll-behavior: smooth; }
 }
 .animate-bounce-in { animation: bounce-in 0.35s ease-out; }
 
-/* Tenant for-pros pricing: 4 columns on large screens, centered */
+/* Tenant for-pros pricing: flex so 2 or 3 cards stay horizontally centered */
 .tenant-for-pros-pricing-grid {
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 20px;
+  align-items: stretch;
 }
-@media (min-width: 900px) {
-  .tenant-for-pros-pricing-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
+.tenant-for-pros-pricing-grid > div {
+  flex: 0 1 280px;
+  min-width: 260px;
+  max-width: 320px;
 }
 
 /* Marketing section step cards: 4 columns on large screens */

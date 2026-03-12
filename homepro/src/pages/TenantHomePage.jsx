@@ -132,7 +132,6 @@ export default function TenantHomePage({ slug, onNavigate }) {
           siteName={siteName}
           label={data.chat.label || 'Chat with us'}
           primary={primary}
-          onOpenRequestModal={openRequest}
         />
       )}
     </div>
@@ -584,7 +583,7 @@ function ForProfessionalsSection({ slug, siteName, primary, accent, plans, siteU
                 Choose a plan and start receiving leads from {siteName}.
               </p>
             </div>
-            <div className="tenant-for-pros-pricing-grid" style={{ display: 'grid', gap: 20, alignItems: 'start', justifyContent: 'center', maxWidth: 1100, margin: '0 auto' }}>
+            <div className="tenant-for-pros-pricing-grid" style={{ maxWidth: 1100, margin: '0 auto' }}>
               {plans.map(plan => {
                 let features = [];
                 try {

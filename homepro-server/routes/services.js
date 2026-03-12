@@ -87,6 +87,51 @@ router.put('/how-it-works/:id', authenticate, requireRole('admin'), async (req, 
   }
 });
 
+// GET /api/services/default-list — admin: master list from default tenant (for other tenants to browse/copy)
+router.get('/default-list', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT s.*, c.name as category_name, c.slug as category_slug FROM services s LEFT JOIN categories c ON s.category_id = c.id WHERE s.tenant_id = 1 ORDER BY c.sort_order ASC, s.name ASC'
+    );
+    res.json(rows || []);
+  } catch (err) {
+    console.error('GET /services/default-list error:', err);
+    res.status(500).json({ error: 'Database error' });
+  }
+});
+
+// POST /api/services/copy-from-default — admin: copy all services from default tenant to current; category_id mapped by slug (only for non-default tenants)
+router.post('/copy-from-default', authenticate, requireRole('admin'), async (req, res) => {
+  const tid = req.tenant?.id || 1;
+  if (tid === 1) return res.status(400).json({ error: "You're on the default account. Add or edit services directly." });
+  try {
+    const [source] = await db.query(
+      'SELECT s.name, s.slug, s.icon_class, s.card_image_url, s.avg_rating, s.review_count, s.review_label, s.min_price, s.price_unit, c.slug as category_slug FROM services s LEFT JOIN categories c ON s.category_id = c.id WHERE s.tenant_id = 1 ORDER BY s.id ASC'
+    );
+    const [myCategories] = await db.query('SELECT id, slug FROM categories WHERE tenant_id = ?', [tid]);
+    const slugToId = {};
+    for (const row of myCategories || []) slugToId[row.slug] = row.id;
+    const [existing] = await db.query('SELECT slug FROM services WHERE tenant_id = ?', [tid]);
+    const existingSlugs = new Set((existing || []).map(r => r.slug));
+    let copied = 0;
+    for (const s of source || []) {
+      if (existingSlugs.has(s.slug)) continue;
+      const categoryId = s.category_slug ? (slugToId[s.category_slug] || null) : null;
+      await db.query(
+        `INSERT INTO services (tenant_id, category_id, name, slug, icon_class, card_image_url, avg_rating, review_count, review_label, min_price, price_unit)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [tid, categoryId, s.name, s.slug, s.icon_class || 'faWrench', s.card_image_url || null, s.avg_rating ?? 4.5, s.review_count ?? 0, s.review_label || null, s.min_price || null, s.price_unit || 'per job']
+      );
+      existingSlugs.add(s.slug);
+      copied++;
+    }
+    res.json({ message: `Copied ${copied} service${copied === 1 ? '' : 's'} from default. Copy categories first if you need them to match.`, copied });
+  } catch (err) {
+    console.error('POST /services/copy-from-default error:', err);
+    res.status(500).json({ error: err.message || 'Server error' });
+  }
+});
+
 // GET /api/services/:slug
 router.get('/:slug', async (req, res) => {
   const tid = req.tenant?.id || 1;
@@ -145,9 +190,10 @@ router.put('/:id', authenticate, requireRole('admin'), async (req, res) => {
   }
 });
 
-// DELETE /api/services/:id — admin
+// DELETE /api/services/:id — admin (blocked for default tenant)
 router.delete('/:id', authenticate, requireRole('admin'), async (req, res) => {
   const tid = req.tenant?.id || 1;
+  if (tid === 1) return res.status(403).json({ error: 'Services cannot be deleted for the default account.' });
   try {
     await db.query('DELETE FROM services WHERE id = ? AND tenant_id = ?', [req.params.id, tid]);
     res.json({ message: 'Service deleted' });

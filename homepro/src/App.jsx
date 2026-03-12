@@ -20,6 +20,7 @@ import ProDashboard       from './components/ProDashboard';
 import ConsumerSignupModal from './components/ConsumerSignupModal';
 import ProSignupModal     from './components/ProSignupModal';
 import Footer             from './components/Footer';
+import CookieNotice       from './components/CookieNotice';
 
 import LoginPage        from './pages/LoginPage';
 import RegisterPage     from './pages/RegisterPage';
@@ -345,6 +346,8 @@ function AppInner() {
       )}
 
       {(view === 'home' || view === 'how' || view === 'for-pros' || view === 'cms-page') && <Footer onNavigate={navigate} />}
+
+      <CookieNotice />
 
       {consumerModal !== null && (
         <ConsumerSignupModal
