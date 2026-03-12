@@ -9,6 +9,7 @@ const bcrypt   = require('bcryptjs');
 const { authenticate } = require('../middleware/auth');
 const { clearTenantCache } = require('../middleware/tenant');
 const { audit } = require('../services/audit');
+const { clearSiteConfigCache } = require('../services/siteConfig');
 
 // ── Auth guard ─────────────────────────────────────────────
 function requireSuperAdmin(req, res, next) {
@@ -23,13 +24,14 @@ router.use(authenticate);
 router.use(requireSuperAdmin);
 
 // ── Provisioning helper ─────────────────────────────────────
+// Copies all settings and related data from the default tenant (id=1) so the new admin has the same config; they can change anything later.
 async function provisionTenant(tenantId, conn) {
-  // Copy settings from tenant 1 as defaults
-  const [defaultSettings] = await (conn || db).query(
+  const q = conn || db;
+  const [defaultSettings] = await q.query(
     'SELECT setting_key, setting_value, setting_type, setting_group, label, description, is_public, sort_order FROM settings WHERE tenant_id = 1'
   );
   for (const s of defaultSettings) {
-    await (conn || db).query(
+    await q.query(
       `INSERT IGNORE INTO settings (tenant_id, setting_key, setting_value, setting_type, setting_group, label, description, is_public, sort_order)
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [tenantId, s.setting_key, s.setting_value, s.setting_type, s.setting_group, s.label, s.description, s.is_public, s.sort_order]
@@ -37,11 +39,11 @@ async function provisionTenant(tenantId, conn) {
   }
 
   // Copy notification templates from tenant 1
-  const [defaultTemplates] = await (conn || db).query(
+  const [defaultTemplates] = await q.query(
     'SELECT slug, name, channel, subject, body, description, variables, is_active FROM notification_templates WHERE tenant_id = 1'
   );
   for (const t of defaultTemplates) {
-    await (conn || db).query(
+    await q.query(
       `INSERT IGNORE INTO notification_templates (tenant_id, slug, name, channel, subject, body, description, variables, is_active)
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [tenantId, t.slug, t.name, t.channel, t.subject, t.body, t.description, t.variables, t.is_active]
@@ -49,11 +51,11 @@ async function provisionTenant(tenantId, conn) {
   }
 
   // Copy how-it-works steps from tenant 1
-  const [defaultHIW] = await (conn || db).query(
+  const [defaultHIW] = await q.query(
     'SELECT audience, step_number, icon_class, title, description FROM how_it_works WHERE tenant_id = 1'
   );
   for (const h of defaultHIW) {
-    await (conn || db).query(
+    await q.query(
       `INSERT IGNORE INTO how_it_works (tenant_id, audience, step_number, icon_class, title, description)
        VALUES (?,?,?,?,?,?)`,
       [tenantId, h.audience, h.step_number, h.icon_class, h.title, h.description]
@@ -61,11 +63,11 @@ async function provisionTenant(tenantId, conn) {
   }
 
   // Copy subscription plans from tenant 1
-  const [defaultPlans] = await (conn || db).query(
+  const [defaultPlans] = await q.query(
     'SELECT name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order FROM subscription_plans WHERE tenant_id = 1'
   );
   for (const p of defaultPlans) {
-    await (conn || db).query(
+    await q.query(
       `INSERT IGNORE INTO subscription_plans (tenant_id, name, slug, stripe_price_id, price_monthly, price_yearly, lead_credits, max_service_areas, max_services, features, is_popular, sort_order)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [tenantId, p.name, p.slug, p.stripe_price_id, p.price_monthly, p.price_yearly, p.lead_credits, p.max_service_areas, p.max_services, p.features, p.is_popular, p.sort_order]
@@ -74,11 +76,11 @@ async function provisionTenant(tenantId, conn) {
 
   // Copy credit bundles (top-up packages) from tenant 1
   try {
-    const [defaultBundles] = await (conn || db).query(
+    const [defaultBundles] = await q.query(
       'SELECT label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order FROM credit_bundles WHERE tenant_id = 1'
     );
     for (const b of defaultBundles || []) {
-      await (conn || db).query(
+      await q.query(
         `INSERT INTO credit_bundles (tenant_id, label, credits, price, price_per_credit, stripe_price_id, is_active, sort_order)
          VALUES (?,?,?,?,?,?,?,?)`,
         [tenantId, b.label, b.credits, b.price, b.price_per_credit, b.stripe_price_id, b.is_active !== false, b.sort_order || 0]
@@ -89,15 +91,31 @@ async function provisionTenant(tenantId, conn) {
   }
 
   // Copy categories and services from tenant 1
-  const [defaultCats] = await (conn || db).query(
+  const [defaultCats] = await q.query(
     'SELECT name, slug, icon_class, description, tags, sort_order FROM categories WHERE tenant_id = 1 AND parent_id IS NULL'
   );
   for (const c of defaultCats) {
-    await (conn || db).query(
+    await q.query(
       `INSERT IGNORE INTO categories (tenant_id, name, slug, icon_class, description, tags, sort_order)
        VALUES (?,?,?,?,?,?,?)`,
       [tenantId, c.name, c.slug, c.icon_class, c.description, c.tags, c.sort_order]
     );
+  }
+
+  // Copy CMS pages (terms, copyright, about, etc.) from tenant 1
+  try {
+    const [defaultPages] = await q.query(
+      'SELECT slug, title, content, excerpt, meta_title, meta_desc, status, show_in_nav, nav_order, nav_group FROM pages WHERE tenant_id = 1'
+    );
+    for (const p of defaultPages || []) {
+      await q.query(
+        `INSERT IGNORE INTO pages (tenant_id, slug, title, content, excerpt, meta_title, meta_desc, status, show_in_nav, nav_order, nav_group)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [tenantId, p.slug, p.title, p.content || null, p.excerpt || null, p.meta_title || null, p.meta_desc || null, p.status || 'published', !!p.show_in_nav, p.nav_order || 0, p.nav_group || 'company']
+      );
+    }
+  } catch (_) {
+    // pages table may differ
   }
 }
 
@@ -196,10 +214,11 @@ router.post('/tenants', async (req, res) => {
       await conn.query('UPDATE tenants SET owner_user_id = ? WHERE id = ?', [ownerUserId, tenantId]);
     }
 
-    await conn.commit();
+    // Provision default data from default tenant (settings, templates, plans, etc.) so new admin has same config
+    await provisionTenant(tenantId, conn);
 
-    // Provision default data (settings, templates, etc.)
-    await provisionTenant(tenantId);
+    await conn.commit();
+    clearSiteConfigCache(tenantId);
 
     res.status(201).json({
       id: tenantId,
