@@ -698,7 +698,7 @@ export default function AdminDashboard({ onShowLead }) {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
             <p style={{ fontSize: 14, color: ts, margin: 0 }}>Welcome back, {user?.firstName || user?.first_name || 'Admin'}.</p>
-            <a href={tenantSlug === 'default' ? '/' : `/#t/${tenantSlug}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <a href={`/#t/${tenantSlug}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               <FontAwesomeIcon icon={faEye} style={{ fontSize: 10 }} />
               Preview website
             </a>
