@@ -38,6 +38,9 @@ export default function ProfilePage() {
   const [plans, setPlans] = useState([]);
   const [subLoading, setSubLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
 
   const [account, setAccount] = useState({
     firstName: '',

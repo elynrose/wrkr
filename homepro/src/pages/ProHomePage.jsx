@@ -214,13 +214,15 @@ export default function ProHomePage({ onProSignup, onNavigate }) {
             <h2 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Simple, transparent pricing</h2>
             <p style={{ color: ts, maxWidth: 440, margin: '0 auto' }}>Start free and upgrade as you grow. No hidden fees.</p>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20, alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 20, alignItems: 'stretch' }}>
             {plans.length > 0 ? plans.map(p => {
               let features = [];
               try { features = typeof p.features === 'string' ? JSON.parse(p.features) : p.features; } catch {}
               if (!Array.isArray(features)) features = [];
               return (
                 <div key={p.id} style={{
+                  flex: '1 1 220px',
+                  maxWidth: 280,
                   background: cardBg, border: p.is_popular ? `2px solid ${accent}` : `1px solid ${border}`,
                   borderRadius: 'var(--border-radius)', padding: '28px 24px', position: 'relative',
                   boxShadow: p.is_popular ? '0 8px 30px rgba(249,115,22,0.15)' : (dm ? 'none' : '0 1px 4px rgba(0,0,0,0.06)'),
