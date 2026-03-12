@@ -77,68 +77,103 @@ function AppInner() {
   const [verifyToken, setVerifyToken]     = useState(null);
   const [tenantSlug, setTenantSlug]       = useState(null);
 
-  // Parse hash routes on load and hash change (for SMS claim links)
+  // Parse hash routes on load and hash change (so refresh keeps you on the same page)
   useEffect(() => {
     const parseHash = () => {
-      const hash = window.location.hash;
+      const hash = (window.location.hash || '').replace(/^#\/?/, '#') || '#';
       const pathname = window.location.pathname || '';
-      if (pathname === '/install' || hash === '#install' || hash === '#/install') {
+      if (pathname === '/install' || hash === '#install') {
         setView('install');
         return;
       }
-      if (pathname === '/join' || hash === '#join' || hash === '#/join') {
+      if (pathname === '/join' || hash === '#join') {
         setView('join');
         return;
       }
-      const claimMatch = hash.match(/^#claim\/(.+)$/);
+      const claimMatch = window.location.hash.match(/^#claim\/(.+)$/);
       if (claimMatch) {
         setClaimToken(claimMatch[1]);
         setView('claim');
         return;
       }
-      const reviewMatch = hash.match(/^#review\/(.+)$/);
+      const reviewMatch = window.location.hash.match(/^#review\/(.+)$/);
       if (reviewMatch) {
         setReviewToken(reviewMatch[1]);
         setView('review');
         return;
       }
-      const resetMatch = hash.match(/^#reset\/(.+)$/);
+      const resetMatch = window.location.hash.match(/^#reset\/(.+)$/);
       if (resetMatch) {
         setResetToken(resetMatch[1]);
         setView('reset-password');
         return;
       }
-      const verifyMatch = hash.match(/^#verify\/(.+)$/);
+      const verifyMatch = window.location.hash.match(/^#verify\/(.+)$/);
       if (verifyMatch) {
         setVerifyToken(verifyMatch[1]);
         setView('verify-email');
         return;
       }
-      if (hash === '#forgot' || hash === '#/forgot') {
+      if (hash === '#forgot') {
         setView('forgot-password');
         return;
       }
-      const tenantForProsMatch = hash.match(/^#t\/([^/]+)\/for-pros$/);
+      const tenantForProsMatch = window.location.hash.match(/^#t\/([^/]+)\/for-pros$/);
       if (tenantForProsMatch) {
         setTenantSlug(tenantForProsMatch[1]);
         setView('tenant-for-pros');
         return;
       }
-      const tenantMatch = hash.match(/^#t\/(.+)$/);
+      const tenantMatch = window.location.hash.match(/^#t\/(.+)$/);
       if (tenantMatch) {
         setTenantSlug(tenantMatch[1]);
         setView('tenant-home');
         return;
       }
-      const pageMatch = hash.match(/^#page\/(.+)$/);
+      const pageMatch = window.location.hash.match(/^#page\/(.+)$/);
       if (pageMatch) {
         setCmsSlug(pageMatch[1]);
         setView('cms-page');
         return;
       }
-      if (hash === '#install' || hash === '#/install') {
-        setView('install');
+      // Main app views (so refresh keeps you on same page)
+      const h = (window.location.hash || '').toLowerCase();
+      if (h === '#admin' || h === '#/admin') {
+        setView('admin');
+        return;
       }
+      if (h === '#profile' || h === '#/profile') {
+        setView('profile');
+        return;
+      }
+      if (h === '#pro-dashboard' || h === '#/pro-dashboard') {
+        setView('pro-dashboard');
+        return;
+      }
+      if (h === '#for-pros' || h === '#/for-pros') {
+        setView('for-pros');
+        return;
+      }
+      if (h === '#how' || h === '#/how') {
+        setView('how');
+        return;
+      }
+      if (h === '#login' || h === '#/login') {
+        setView('login');
+        return;
+      }
+      if (h === '#register' || h === '#/register') {
+        setView('register');
+        return;
+      }
+      if (h === '#home' || h === '#/home' || h === '#/' || h === '' || h === '#') {
+        setView('home');
+        return;
+      }
+      // Unknown hash -> home
+      setCmsSlug(null);
+      setTenantSlug(null);
+      setView('home');
     };
     parseHash();
     window.addEventListener('hashchange', parseHash);
@@ -225,8 +260,10 @@ function AppInner() {
 
   const navigate = (v) => {
     if (v && v.startsWith('page:')) {
-      setCmsSlug(v.slice(5));
+      const slug = v.slice(5);
+      setCmsSlug(slug);
       setView('cms-page');
+      window.location.hash = `#page/${slug}`;
     } else if (v && v.startsWith('tenant:')) {
       setTenantSlug(v.slice(7));
       setView('tenant-home');
@@ -240,6 +277,18 @@ function AppInner() {
       setCmsSlug(null);
       setTenantSlug(null);
       setView(v);
+      // Keep URL in sync so refresh stays on same page
+      const hashMap = {
+        home: '#home',
+        how: '#how',
+        'for-pros': '#for-pros',
+        'pro-dashboard': '#pro-dashboard',
+        profile: '#profile',
+        admin: '#admin',
+        login: '#login',
+        register: '#register',
+      };
+      window.location.hash = hashMap[v] || '#home';
     }
     window.scrollTo(0, 0);
   };
